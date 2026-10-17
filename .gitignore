@@ -1,0 +1,43 @@
+# Build output
+build/
+out/
+
+# Gradle
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Minecraft
+run/
+logs/
+world/
+server.properties
+*.dat
+*.dat_old
+ops.json
+whitelist.json
+banned-ips.json
+banned-players.json
+eula.txt
+
+# Forge
+forge-*.jar
+minecraft_server.*.jar
+
+# Cache
+__pycache__/
+*.pyc
+.cache/
+

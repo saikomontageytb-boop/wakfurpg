@@ -1,0 +1,19 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "wakfurpg:font/gothic.png",
+      "ascent": 8,
+      "height": 9,
+      "chars": [
+        "ABCDEFGHIJKLMNOP",
+        "QRSTUVWXYZ012345",
+        "6789.,:;!?'\"-()+",
+        "/%°_[]<>=$&*@# ,",
+        "éèàâçêîôûùÉÈÀÇïÎ",
+        "abcdefghijklmnop",
+        "qrstuvwxyzÿæœ€†‡"
+      ]
+    }
+  ]
+}

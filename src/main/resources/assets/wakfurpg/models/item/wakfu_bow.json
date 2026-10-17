@@ -1,0 +1,26 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "wakfurpg:item/bow_commune"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 1
+      },
+      "model": "wakfurpg:item/bow_commune"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 2
+      },
+      "model": "wakfurpg:item/bow_rare"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 3
+      },
+      "model": "wakfurpg:item/bow_epique"
+    }
+  ]
+}

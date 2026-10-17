@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "wakfurpg:item/trophy_zombie"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 1
+      },
+      "model": "wakfurpg:item/trophy_zombie"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 2
+      },
+      "model": "wakfurpg:item/trophy_skeleton"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 3
+      },
+      "model": "wakfurpg:item/trophy_bandit"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 4
+      },
+      "model": "wakfurpg:item/trophy_chef"
+    }
+  ]
+}

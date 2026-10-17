@@ -1,0 +1,16 @@
+{
+  "type": "wakfurpg:arena",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "layers": [],
+      "biome_source": {
+        "type": "minecraft:fixed",
+        "biome": "minecraft:plains"
+      },
+      "features": false,
+      "lakes": false,
+      "structure_overrides": []
+    }
+  }
+}
