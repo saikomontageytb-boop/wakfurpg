@@ -1073,6 +1073,13 @@ public class CombatManager {
 
         int dist = ZoneType.chebyshev(cur, target);
 
+        // rage : sous 35 % de PV le monstre frappe plus fort (annoncé une seule fois)
+        boolean enraged = m.getCurrentHp() * 100 < m.maxHpFor() * 35;
+        if (enraged && m.addTag("enrage")) {
+            combat.level.playSound(null, cur, SoundEvents.RAVAGER_ROAR, SoundSource.HOSTILE, 0.6f, 1.2f);
+            broadcast(combat, "§c🔥 " + m.getName().getString() + " est blessé et entre en rage !");
+        }
+
         // v0.27 : executer le skill special si disponible et applicable
         // la compétence est choisie APRÈS le déplacement, sur la vraie distance (80 % du temps)
         boolean usedSkill = false;
@@ -1088,6 +1095,7 @@ public class CombatManager {
         // Attaque normale si pas de skill special utilise
         if (!usedSkill && dist <= t.range && (t.range <= 1 || hasLos(combat, cur, target))) {
             int raw = m.getDamage() + RANDOM.nextInt(3);
+            if (enraged) raw += Math.max(1, raw / 4);
             combat.level.playSound(null, cur, SoundEvents.PLAYER_ATTACK_SWEEP, SoundSource.HOSTILE, 0.6f, 0.9f);
             if (bestS != null) {
                 bestS.hurtCombat(raw);
