@@ -69,6 +69,7 @@ public class MobSkill {
         Map<String, Integer> cd = COOLDOWNS.get(entityId);
         if (cd == null) return;
         cd.replaceAll((k, v) -> Math.max(0, v - 1));
+        if (cd.values().stream().allMatch(v -> v <= 0)) COOLDOWNS.remove(entityId);
     }
 
     // =========================================================
@@ -162,13 +163,22 @@ public class MobSkill {
 
     /** Choisit un skill utilisable aleatoirement (ou null si aucun dispo). */
     public static MobSkill pickUsable(MonsterType type, int entityId) {
-        List<MobSkill> skills = skillsFor(type);
-        if (skills.isEmpty()) return null;
+        return pickUsable(type, entityId, s -> true, false);
+    }
+
+    /**
+     * Choisit parmi les compétences prêtes (hors cooldown) et applicables.
+     * Si preferHeal est vrai, un soin disponible passe en premier.
+     */
+    public static MobSkill pickUsable(MonsterType type, int entityId,
+                                      java.util.function.Predicate<MobSkill> applicable, boolean preferHeal) {
         List<MobSkill> usable = new ArrayList<>();
-        for (MobSkill s : skills) {
-            if (s.remainingCd(entityId) <= 0) usable.add(s);
+        for (MobSkill s : skillsFor(type)) {
+            if (s.remainingCd(entityId) > 0 || !applicable.test(s)) continue;
+            if (preferHeal && s.type == SkillType.HEAL) return s;
+            usable.add(s);
         }
         if (usable.isEmpty()) return null;
-        return usable.get(new Random().nextInt(usable.size()));
+        return usable.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(usable.size()));
     }
 }

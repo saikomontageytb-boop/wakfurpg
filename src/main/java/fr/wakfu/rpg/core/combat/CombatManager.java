@@ -1011,7 +1011,6 @@ public class CombatManager {
         BlockPos cur = m.blockPosition();
         // v0.27 : tick cooldowns + tentative de skill special
         MobSkill.tickCooldowns(m.getId());
-        MobSkill skill = MobSkill.pickUsable(t, m.getId());
         // cible la plus proche : membre du groupe ou invocation
         purgeSummons(combat, 0);
         ServerPlayer bestP = null;
@@ -1023,7 +1022,10 @@ public class CombatManager {
             if (mp2 == null) continue;
             BlockPos c = combat.cells.get(u);
             if (c == null) continue;
-            int d = ZoneType.chebyshev(cur, c);
+            // score = distance, + un malus aux cibles solides, + un peu de hasard (cibles moins prévisibles)
+            PlayerRpgData pd = cap(mp2);
+            int d = ZoneType.chebyshev(cur, c) * 4 + (pd == null ? 0 : Math.min(6, pd.getHp() / 5))
+                    + RANDOM.nextInt(4);
             if (d < bestD) {
                 bestD = d;
                 bestP = mp2;
@@ -1034,7 +1036,8 @@ public class CombatManager {
         for (int sid : combat.summonsOf(0)) {
             Entity se = combat.level.getEntity(sid);
             if (se instanceof MonsterNpc sm && sm.isAlive()) {
-                int d = ZoneType.chebyshev(cur, sm.blockPosition());
+                int d = ZoneType.chebyshev(cur, sm.blockPosition()) * 4 + Math.min(6, sm.getCurrentHp() / 5)
+                        + 2 + RANDOM.nextInt(4);
                 if (d < bestD) {
                     bestD = d;
                     bestS = sm;
@@ -1049,6 +1052,17 @@ public class CombatManager {
         int steps = t.pm;
         Combat.UnitEffects mobEffects = combat.effects.get(m.getId());
         if (mobEffects != null && mobEffects.slowThisTurn) steps = Math.max(0, steps - 1);
+        // les tireurs gardent leurs distances : ils reculent si la cible est collée
+        if (t.range >= 3) {
+            int wanted = Math.min(t.range, 4);
+            while (steps > 0 && ZoneType.chebyshev(cur, target) < wanted) {
+                BlockPos retreat = retreatCell(combat, cur, target);
+                if (retreat == null) break;
+                cur = retreat;
+                if (stepMonster(combat, m, 1, cur)) return;
+                steps--;
+            }
+        }
         while (steps > 0 && ZoneType.chebyshev(cur, target) > t.range) {
             BlockPos next = bfsNext(combat, cur, target, m);
             if (next == null || next.equals(cur) || next.equals(target)) break;
@@ -1060,10 +1074,15 @@ public class CombatManager {
         int dist = ZoneType.chebyshev(cur, target);
 
         // v0.27 : executer le skill special si disponible et applicable
+        // la compétence est choisie APRÈS le déplacement, sur la vraie distance (80 % du temps)
         boolean usedSkill = false;
-        if (skill != null && dist >= skill.minRange && dist <= skill.maxRange) {
-            usedSkill = executeMobSkill(combat, m, skill, cur, target, bestP, bestS, t);
-            if (usedSkill) skill.use(m.getId());
+        if (RANDOM.nextInt(100) < 80) {
+            boolean wounded = m.getCurrentHp() * 10 < m.maxHpFor() * 4;
+            MobSkill skill = MobSkill.pickUsable(t, m.getId(), s -> skillApplicable(s, m, dist), wounded);
+            if (skill != null) {
+                usedSkill = executeMobSkill(combat, m, skill, cur, target, bestP, bestS, t);
+                if (usedSkill) skill.use(m.getId());
+            }
         }
 
         // Attaque normale si pas de skill special utilise
@@ -1108,6 +1127,38 @@ public class CombatManager {
     }
 
 
+
+    /** Case voisine libre qui éloigne strictement le monstre de sa cible (null si coincé). */
+    private static BlockPos retreatCell(Combat combat, BlockPos cur, BlockPos target) {
+        int current = ZoneType.chebyshev(cur, target);
+        int best = current;
+        List<BlockPos> options = new ArrayList<>();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                BlockPos c = cur.offset(dx, 0, dz);
+                if (!combat.isPlayable(c) || occupiedByUnit(combat, c, null)) continue;
+                int d = ZoneType.chebyshev(c, target);
+                if (d <= current) continue;
+                if (d > best) { best = d; options.clear(); }
+                if (d == best) options.add(c);
+            }
+        }
+        return options.isEmpty() ? null : options.get(RANDOM.nextInt(options.size()));
+    }
+
+    /** Une compétence n'est jouée que si elle a un effet réel à la distance actuelle. */
+    private static boolean skillApplicable(MobSkill s, MonsterNpc m, int dist) {
+        boolean selfCast = s.maxRange == 0;
+        boolean inRange = dist >= s.minRange && dist <= s.maxRange;
+        return switch (s.type) {
+            case HEAL -> m.getCurrentHp() * 10 < m.maxHpFor() * 8;
+            case BUFF -> !m.getTags().contains("buffed");
+            case AOE -> selfCast ? dist <= 1 : inRange;
+            case MOVE -> selfCast ? dist > 1 : inRange;
+            default -> selfCast ? dist <= 1 : inRange;
+        };
+    }
 
     // ------------------------------------------------------------ competences speciales du bestiaire Wakfu
     private static boolean executeMobSkill(Combat combat, MonsterNpc m, MobSkill skill,
