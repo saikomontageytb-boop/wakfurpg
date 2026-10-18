@@ -188,33 +188,44 @@ public class WakfuHud implements IGuiOverlay {
         // (v0.13 : diag retire d'ici — il passait SOUS le panneau des tours ;
         //  le diagnostic complet reste visible dans le menu pause)
         // --- panneau des tours (gauche) — v0.19 : liste du groupe
-        int nAllies = 0, nFoes = 0;
+        int nFoes = 0;
+        boolean allyActive = false;
         for (int[] u : st.units) {
-            if (u[0] == 0) nAllies++;
-            else nFoes++;
+            if (u[0] != 0) nFoes++;
+            else if (u[6] == 1) allyActive = true;
         }
-        int px = 4, py = 4, pw = 120, ph = 26 + Math.max(1, nAllies) * 11 + 13;
+        int rows = Math.max(1, st.units.size());
+        int px = 4, py = 4, pw = 134, ph = 24 + rows * 13 + 4;
         g.blit(PANEL, px, py, pw, ph, 0, 64, 128, 64, 128, 128);
         g.drawString(GothicFont.get(), "§6Round §e" + st.round, px + 8, py + 5, 0xFFFFFF);
-        int ly = py + 18;
-        int idx = 0;
-        for (int[] u : st.units) {
-            if (u[0] != 0) continue;
-            String nm = idx < st.unitNames.size() ? st.unitNames.get(idx) : "?";
-            idx++;
-            if (nm.length() > 10) nm = nm.substring(0, 10);
-            String mark = u[6] == 1 ? "§2► " : "§8· ";
-            g.drawString(mc.font, mark + "§f" + nm + " §a" + u[4], px + 8, ly, 0xFFFFFF);
-            ly += 11;
+        // indicateur de tour, aligné à droite de l'en-tête
+        String turnTag = st.yourTurn ? "§aÀ toi" : "§cAdverse";
+        g.drawString(mc.font, turnTag, px + pw - 8 - mc.font.width(turnTag), py + 6, 0xFFFFFF);
+        int ly = py + 20;
+        if (st.units.isEmpty()) {
+            g.drawString(mc.font, "§f" + mc.player.getName().getString(), px + 10, ly, 0xFFFFFF);
         }
-        if (nAllies == 0) {
-            g.drawString(mc.font, "§f" + mc.player.getName().getString(), px + 8, ly, 0xFFFFFF);
-            ly += 11;
+        for (int i = 0; i < st.units.size(); i++) {
+            int[] u = st.units.get(i);
+            boolean ally = u[0] == 0;
+            boolean acting = ally ? u[6] == 1 : (!st.yourTurn && !allyActive);
+            String nm = i < st.unitNames.size() ? st.unitNames.get(i) : "?";
+            if (nm.length() > 9) nm = nm.substring(0, 9);
+            // surbrillance discrète de l'unité qui joue
+            if (acting) {
+                g.fill(px + 4, ly - 2, px + pw - 4, ly + 10, 0x30FFFFFF);
+                g.fill(px + 4, ly - 2, px + 6, ly + 10, ally ? 0xFF55CC55 : 0xFFCC4433);
+            }
+            g.drawString(mc.font, (ally ? "§f" : "§7") + nm, px + 10, ly, 0xFFFFFF);
+            // mini-barre de PV (verte -> jaune -> rouge pour les alliés, rouge pour les ennemis)
+            float frac = u[5] > 0 ? Math.max(0f, Math.min(1f, u[4] / (float) u[5])) : 0f;
+            int bx0 = px + pw - 52, bw0 = 44;
+            int col = !ally ? 0xFFCC4433 : (frac > 0.5f ? 0xFF55CC55 : (frac > 0.25f ? 0xFFCCAA33 : 0xFFCC4433));
+            g.fill(bx0 - 1, ly + 1, bx0 + bw0 + 1, ly + 8, 0xFF05050A);
+            g.fill(bx0, ly + 2, bx0 + bw0, ly + 7, 0xFF2A1A1A);
+            g.fill(bx0, ly + 2, bx0 + (int) (bw0 * frac), ly + 7, col);
+            ly += 13;
         }
-        String foeLine = st.pvp
-                ? (st.yourTurn ? "§8· " : "§c► ") + "§7" + (st.oppName.length() > 10 ? st.oppName.substring(0, 10) : st.oppName)
-                : (st.yourTurn ? "§8· " : "§c► ") + "§7" + (nFoes > 1 ? nFoes + " monstres" : (nFoes == 1 ? "1 monstre" : "0 monstre"));
-        g.drawString(mc.font, foeLine, px + 8, ly, 0xFFFFFF);
 
         // --- PV adversaire (haut centre)
         int bw = 180, bh = 22;
