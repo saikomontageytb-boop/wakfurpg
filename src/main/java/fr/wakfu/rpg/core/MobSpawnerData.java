@@ -169,7 +169,7 @@ public final class MobSpawnerData extends SavedData {
                 data.setDirty();
                 continue;
             }
-            if (!spawnMonster(level, site, spawn)) {
+            if (!spawnMonster(level, site, spawn, site.cap - alive)) {
                 site.nextSpawnTick = now + 40;
                 data.setDirty();
                 continue;
@@ -205,7 +205,7 @@ public final class MobSpawnerData extends SavedData {
             return;
         }
         String id = zone.monsterIds.get(RANDOM.nextInt(zone.monsterIds.size()));
-        if (!spawnMonster(level, site, spawn, id)) {
+        if (!spawnZoneMonster(level, site, spawn, id, zone.maxMobs - alive)) {
             zone.nextSpawnTick = now + 40;
             return;
         }
@@ -296,19 +296,47 @@ public final class MobSpawnerData extends SavedData {
                 "golem_siege", "archer_os"};
     }
 
-    private static boolean spawnMonster(ServerLevel level, SpawnSite site, BlockPos pos) {
+    /** Apparition d'un monstre du bestiaire du site ; room = places restantes avant le plafond. */
+    private static boolean spawnMonster(ServerLevel level, SpawnSite site, BlockPos pos, int room) {
         boolean grecos = level.dimension().equals(IslandMap.DIMENSION);
         int levelRange = Math.max(0, site.maxLevel - site.minLevel + 1);
         int mobLevel = site.minLevel + (levelRange == 0 ? 0 : RANDOM.nextInt(levelRange));
         String[] family = familyFor(grecos, mobLevel);
         String id = family[RANDOM.nextInt(family.length)];
-        return spawnMonster(level, site, pos, id, mobLevel);
+        return spawnWithPack(level, site, pos, id, mobLevel, room);
     }
 
-    private static boolean spawnMonster(ServerLevel level, SpawnSite site, BlockPos pos, String id) {
+    /** Apparition d'un monstre choisi par la zone ; room = places restantes avant le plafond. */
+    private static boolean spawnZoneMonster(ServerLevel level, SpawnSite site, BlockPos pos, String id, int room) {
         int range = Math.max(0, site.maxLevel - site.minLevel + 1);
         int mobLevel = site.minLevel + (range == 0 ? 0 : RANDOM.nextInt(range));
-        return spawnMonster(level, site, pos, id, mobLevel);
+        return spawnWithPack(level, site, pos, id, mobLevel, room);
+    }
+
+    /**
+     * Fait apparaître le monstre, puis (35 % du temps) 1 à 2 compagnons de la même espèce à
+     * quelques blocs, sans jamais dépasser la place restante : le terrain a des meutes, pas
+     * seulement des monstres isolés.
+     */
+    private static boolean spawnWithPack(ServerLevel level, SpawnSite site, BlockPos pos, String id,
+                                         int mobLevel, int room) {
+        if (!spawnMonster(level, site, pos, id, mobLevel)) return false;
+        int maxExtra = Math.min(room - 1, 2);
+        if (maxExtra <= 0 || RANDOM.nextInt(100) >= 35) return true;
+        int wanted = 1 + RANDOM.nextInt(maxExtra);
+        int spawned = 0;
+        for (int tries = 0; spawned < wanted && tries < 8; tries++) {
+            int x = pos.getX() + RANDOM.nextInt(7) - 3;
+            int z = pos.getZ() + RANDOM.nextInt(7) - 3;
+            if (x == pos.getX() && z == pos.getZ()) continue;
+            if (!level.hasChunkAt(new BlockPos(x, level.getMinBuildHeight(), z))) continue;
+            int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+            BlockPos feet = new BlockPos(x, y, z);
+            if (!validSpawnSpace(level, feet) || !farFromPlayers(level, feet)) continue;
+            int companionLevel = Math.max(site.minLevel, mobLevel - RANDOM.nextInt(2));
+            if (spawnMonster(level, site, feet, id, companionLevel)) spawned++;
+        }
+        return true;
     }
 
     private static boolean spawnMonster(ServerLevel level, SpawnSite site, BlockPos pos, String id, int mobLevel) {
