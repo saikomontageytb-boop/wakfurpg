@@ -420,11 +420,6 @@ public class CommonEvents {
     }
 
     @SubscribeEvent
-    public void onBlockPlace(net.minecraftforge.event.entity.player.PlayerInteractEvent.RightClickItem event) {
-        // rien : la pose de bloc passe par RightClickBlock annule en arene
-    }
-
-    @SubscribeEvent
     public void onItemToss(net.minecraftforge.event.entity.item.ItemTossEvent event) {
         var item = event.getEntity().getItem();
         if (item.getItem() instanceof fr.wakfu.rpg.item.SpellItem
