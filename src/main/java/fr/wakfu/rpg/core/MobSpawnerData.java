@@ -22,6 +22,10 @@ import java.util.Random;
 public final class MobSpawnerData extends SavedData {
     private static final String SAVE_ID = "wakfurpg_mob_spawners";
     private static final Random RANDOM = new Random();
+    /** Tentatives aléatoires pour trouver un sol libre (aucun balayage exhaustif). */
+    private static final int GROUND_ATTEMPTS = 40;
+    /** Les monstres n'apparaissent jamais plus près que cette distance d'un joueur. */
+    private static final double MIN_PLAYER_DISTANCE_SQ = 20.0 * 20.0;
     private final Map<String, SpawnSite> sites = new LinkedHashMap<>();
     private boolean initialized;
 
@@ -121,7 +125,7 @@ public final class MobSpawnerData extends SavedData {
                 else if (distance < 300) { min = 4; max = 10; }
                 else { min = 8; max = 16; }
                 String name = "auto_" + sx + "_" + sz;
-                add(name, new BlockPos(x, origin.getY(), z), 160, min, max, 2);
+                add(name, new BlockPos(x, origin.getY(), z), 160, min, max, 4);
             }
         }
         initialized = true;
@@ -151,14 +155,12 @@ public final class MobSpawnerData extends SavedData {
     public static void tick(ServerLevel level) {
         long now = level.getGameTime();
         if (now % 40 != 0) return;
+        // personne en ligne dans cette dimension : aucun travail à faire
+        if (level.players().isEmpty()) return;
         MobSpawnerData data = get(level);
         for (SpawnSite site : data.sites.values()) {
-            if (!hasNearbyPlayer(level, site)) continue;
-            AABB area = new AABB(site.x - site.radius, level.getMinBuildHeight(), site.z - site.radius,
-                    site.x + site.radius + 1, level.getMaxBuildHeight(), site.z + site.radius + 1);
-            int alive = 0;
-            for (MonsterNpc mob : level.getEntitiesOfClass(MonsterNpc.class, area))
-                if (!mob.isSummon() && !mob.getTags().contains("arena_copy")) alive++;
+            if (!hasNearbyPlayer(level, site.x, site.z, site.radius)) continue;
+            int alive = countWild(level, site.x, site.z, site.radius);
             if (alive >= site.cap) continue;
             if (alive > 0 && now < site.nextSpawnTick) continue;
             BlockPos spawn = findDryGround(level, site);
@@ -187,78 +189,85 @@ public final class MobSpawnerData extends SavedData {
     }
 
     private static void tickZone(ServerLevel level, ZoneData.Zone zone, long now, boolean immediate) {
+        if (zone.name.equalsIgnoreCase("spawn") || zone.monsterIds.isEmpty()) return;
+        // gardes bon marché d'abord : pas de scan d'entités tant qu'aucun joueur n'est à portée
+        if (!immediate && !hasNearbyPlayer(level, zone.x, zone.z, zone.r)) return;
         BlockPos center = new BlockPos(zone.x, level.getSharedSpawnPos().getY(), zone.z);
-        if (zone.name.equalsIgnoreCase("spawn") || !level.hasChunkAt(center) || zone.monsterIds.isEmpty()) return;
-        SpawnSite site = new SpawnSite("zone_" + zone.name, zone.x, center.getY(), zone.z,
-                zone.r, zone.minLevel, zone.maxLevel, zone.maxMobs, zone.nextSpawnTick);
-        AABB area = new AABB(zone.x - zone.r, level.getMinBuildHeight(), zone.z - zone.r,
-                zone.x + zone.r + 1, level.getMaxBuildHeight(), zone.z + zone.r + 1);
-        int alive = 0;
-        for (MonsterNpc mob : level.getEntitiesOfClass(MonsterNpc.class, area)) {
-            double dx = mob.getX() - zone.x, dz = mob.getZ() - zone.z;
-            if (!mob.isSummon() && !mob.getTags().contains("arena_copy") && dx * dx + dz * dz <= zone.r * zone.r) alive++;
-        }
+        if (!level.hasChunkAt(center)) return;
+        int alive = countWild(level, zone.x, zone.z, zone.r);
         if (alive >= zone.maxMobs) return;
         if (!immediate && alive > 0 && now < zone.nextSpawnTick) return;
-        if (!immediate && alive > 0 && !hasNearbyPlayer(level, site)) return;
+        SpawnSite site = new SpawnSite("zone_" + zone.name, zone.x, center.getY(), zone.z,
+                zone.r, zone.minLevel, zone.maxLevel, zone.maxMobs, zone.nextSpawnTick);
         BlockPos spawn = findDryGround(level, site);
         if (spawn == null) {
             zone.nextSpawnTick = now + 200;
-            ZoneData.get(level).setDirty();
             return;
         }
         String id = zone.monsterIds.get(RANDOM.nextInt(zone.monsterIds.size()));
         if (!spawnMonster(level, site, spawn, id)) {
             zone.nextSpawnTick = now + 40;
-            ZoneData.get(level).setDirty();
             return;
         }
+        // le délai d'apparition n'est volontairement pas écrit sur disque à chaque monstre
         zone.nextSpawnTick = now + (alive == 0 ? 200 : 600);
-        ZoneData.get(level).setDirty();
     }
 
-    private static boolean hasNearbyPlayer(ServerLevel level, SpawnSite site) {
-        double distance = site.radius + 64.0;
-        double maxSq = distance * distance;
-        for (ServerPlayer player : level.players())
-            if (player.distanceToSqr(site.x + 0.5, site.y, site.z + 0.5) <= maxSq) return true;
+    /** Monstres sauvages (hors invocations et copies d'arène) dans un disque horizontal. */
+    private static int countWild(ServerLevel level, int cx, int cz, int radius) {
+        AABB area = new AABB(cx - radius, level.getMinBuildHeight(), cz - radius,
+                cx + radius + 1, level.getMaxBuildHeight(), cz + radius + 1);
+        long maxSq = (long) radius * radius;
+        int alive = 0;
+        for (MonsterNpc mob : level.getEntitiesOfClass(MonsterNpc.class, area)) {
+            if (mob.isSummon() || mob.getTags().contains("arena_copy")) continue;
+            double dx = mob.getX() - cx, dz = mob.getZ() - cz;
+            if (dx * dx + dz * dz <= maxSq) alive++;
+        }
+        return alive;
+    }
+
+    private static boolean hasNearbyPlayer(ServerLevel level, int x, int z, int radius) {
+        double reach = radius + 64.0;
+        double maxSq = reach * reach;
+        for (ServerPlayer player : level.players()) {
+            double dx = player.getX() - (x + 0.5), dz = player.getZ() - (z + 0.5);
+            if (dx * dx + dz * dz <= maxSq) return true;
+        }
         return false;
     }
 
+    /** Vrai si aucun joueur n'est à moins de 20 blocs : pas d'apparition dans le dos du joueur. */
+    private static boolean farFromPlayers(ServerLevel level, BlockPos feet) {
+        for (ServerPlayer player : level.players()) {
+            if (player.distanceToSqr(feet.getX() + 0.5, feet.getY(), feet.getZ() + 0.5) < MIN_PLAYER_DISTANCE_SQ)
+                return false;
+        }
+        return true;
+    }
+
+    private static boolean isSeparated(ServerLevel level, BlockPos feet) {
+        for (MonsterNpc other : level.getEntitiesOfClass(MonsterNpc.class, new AABB(feet).inflate(10))) {
+            if (!other.isSummon() && !other.getTags().contains("arena_copy")
+                    && other.distanceToSqr(feet.getX() + 0.5, feet.getY(), feet.getZ() + 0.5) < 100) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Cherche un sol libre par tirages aléatoires dans le disque du site. Les chunks non chargés
+     * sont ignorés : getHeight les chargerait (et les générerait) sur le thread serveur.
+     */
     private static BlockPos findDryGround(ServerLevel level, SpawnSite site) {
-        for (int attempt = 0; attempt < 96; attempt++) {
+        for (int attempt = 0; attempt < GROUND_ATTEMPTS; attempt++) {
             double angle = RANDOM.nextDouble() * Math.PI * 2;
             double radius = Math.sqrt(RANDOM.nextDouble()) * site.radius;
             int x = site.x + (int) Math.round(Math.cos(angle) * radius);
             int z = site.z + (int) Math.round(Math.sin(angle) * radius);
+            if (!level.hasChunkAt(new BlockPos(x, level.getMinBuildHeight(), z))) continue;
             int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
             BlockPos feet = new BlockPos(x, y, z);
-            if (!validSpawnSpace(level, feet)) continue;
-            boolean separated = true;
-            for (MonsterNpc other : level.getEntitiesOfClass(MonsterNpc.class, new AABB(feet).inflate(10))) {
-                if (!other.isSummon() && !other.getTags().contains("arena_copy")
-                        && other.distanceToSqr(x + 0.5, y, z + 0.5) < 100) { separated = false; break; }
-            }
-            if (separated) return feet;
-        }
-        for (int radius = 0; radius <= site.radius; radius += 2) {
-            for (int dx = -radius; dx <= radius; dx += 2) {
-                for (int dz = -radius; dz <= radius; dz += 2) {
-                    int x = site.x + dx, z = site.z + dz;
-                    int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-                    BlockPos feet = new BlockPos(x, y, z);
-                    if (!validSpawnSpace(level, feet)) continue;
-                    boolean separated = true;
-                    for (MonsterNpc other : level.getEntitiesOfClass(MonsterNpc.class, new AABB(feet).inflate(10))) {
-                        if (!other.isSummon() && !other.getTags().contains("arena_copy")
-                                && other.distanceToSqr(x + 0.5, y, z + 0.5) < 100) {
-                            separated = false;
-                            break;
-                        }
-                    }
-                    if (separated) return feet;
-                }
-            }
+            if (validSpawnSpace(level, feet) && farFromPlayers(level, feet) && isSeparated(level, feet)) return feet;
         }
         return null;
     }
@@ -271,16 +280,27 @@ public final class MobSpawnerData extends SavedData {
                 && level.getBlockState(feet.above()).canBeReplaced();
     }
 
+    /** Bestiaire du spawner selon la dimension et le niveau tiré : plus on monte, plus c'est dangereux. */
+    private static String[] familyFor(boolean grecos, int mobLevel) {
+        if (grecos) {
+            if (mobLevel <= 15) return new String[]{"eclaireur_cendres", "bandit", "archer_os", "momic_venimeux"};
+            if (mobLevel <= 30) return new String[]{"bandit", "brigand_grand_chemin", "assassin_grand_chemin",
+                    "archer_os", "guerrier_lourd"};
+            return new String[]{"brigand_grand_chemin", "assassin_grand_chemin", "guerrier_lourd",
+                    "golem_siege", "archer_os"};
+        }
+        if (mobLevel <= 5) return new String[]{"momic", "momic_venimeux", "poupee_mecanique", "eclaireur_cendres"};
+        if (mobLevel <= 10) return new String[]{"skeleton", "archer_os", "sentinelle_forest", "gardien_racines",
+                "momic_venimeux", "bandit"};
+        return new String[]{"bandit", "brigand_grand_chemin", "assassin_grand_chemin", "guerrier_lourd",
+                "golem_siege", "archer_os"};
+    }
+
     private static boolean spawnMonster(ServerLevel level, SpawnSite site, BlockPos pos) {
         boolean grecos = level.dimension().equals(IslandMap.DIMENSION);
         int levelRange = Math.max(0, site.maxLevel - site.minLevel + 1);
         int mobLevel = site.minLevel + (levelRange == 0 ? 0 : RANDOM.nextInt(levelRange));
-        String[] family = grecos
-                ? new String[]{"bandit", "eclaireur_cendres", "brigand_grand_chemin", "assassin_grand_chemin",
-                "guerrier_lourd", "golem_siege", "archer_os"}
-                : mobLevel <= 5
-                ? new String[]{"momic", "momic_venimeux", "gardien_racines", "poupee_mecanique"}
-                : new String[]{"skeleton", "archer_os", "golem_siege", "sentinelle_forest", "bandit"};
+        String[] family = familyFor(grecos, mobLevel);
         String id = family[RANDOM.nextInt(family.length)];
         return spawnMonster(level, site, pos, id, mobLevel);
     }
