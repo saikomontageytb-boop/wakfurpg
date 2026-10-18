@@ -31,8 +31,10 @@ public class NpcChoicePacket {
         ctx.get().enqueueWork(() -> {
             var player = ctx.get().getSender();
             if (player == null) return;
-            Entity e = player.level().getEntity(msg.entityId);
-            if (e instanceof fr.wakfu.rpg.entity.HeraldNpc he) {
+            Entity e = player.serverLevel().getEntity(msg.entityId);
+            if (e instanceof fr.wakfu.rpg.entity.SailorNpc sailor) {
+                DialogueManager.handleSailorChoice(sailor, player, msg.choice);
+            } else if (e instanceof fr.wakfu.rpg.entity.HeraldNpc he) {
                 DialogueManager.handleHeraldChoice(he, player, msg.choice);
             } else if (e instanceof fr.wakfu.rpg.entity.BlacksmithNpc bs) {
                 DialogueManager.handleBlacksmithChoice(bs, player, msg.choice);

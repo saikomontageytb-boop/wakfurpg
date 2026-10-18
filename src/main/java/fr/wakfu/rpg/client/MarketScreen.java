@@ -61,7 +61,7 @@ public class MarketScreen extends Screen {
         g.fill(px + 4, py + 26, px + PW - 4, py + 27, 0xFFAA8844);
 
         g.drawString(font, "Hôtel des Ventes", px + 14, py + 10, TITLE);
-        String money = "$ " + ClientMoney.fmt(ClientMoney.get());
+        String money = ClientMoney.fmt(ClientMoney.get()) + " pièces";
         g.drawString(font, money, px + PW - 14 - font.width(money), py + 13, GOLD);
 
         // onglets
@@ -78,7 +78,7 @@ public class MarketScreen extends Screen {
         }
         // colonne gauche : aide
         String[] aide = {"Vendre au serveur :", "prix très bas, immédiat.", "",
-                "Entre joueurs : fixe", "ton prix ; l'acheteur", "paie en $ et tu es",
+                "Entre joueurs : fixe", "ton prix ; l'acheteur", "paie en pièces et tu es",
                 "crédité même hors ligne.", "", "100 annonces max."};
         for (int i = 0; i < aide.length; i++) {
             g.drawString(font, aide[i], px + 10, py + 96 + i * 11, FAINT);
@@ -121,7 +121,7 @@ public class MarketScreen extends Screen {
             g.drawString(font, nm, cx + 26, y + 3, TEXT);
             g.drawString(font, mine ? "§eton annonce" : "§8par " + trunc(l.sellerName(), 60),
                     cx + 26, y + 13, mine ? GOLD : FAINT);
-            String pr = "$ " + ClientMoney.fmt(l.price());
+            String pr = ClientMoney.fmt(l.price()) + " pièces";
             g.drawString(font, pr, cx + cw - 70 - font.width(pr), y + 8, GOLD);
             if (mine) {
                 button(g, cx + cw - 62, y + 4, 58, 16, "Retirer", 200 + i, mx, my);
@@ -166,15 +166,15 @@ public class MarketScreen extends Screen {
             return;
         }
         long total = (long) unit * st.getCount();
-        g.drawString(font, "Valeur serveur : " + unit + " $/unité · §eTotal : " + total + " $", rx, ry + 18, MUTED);
-        button(g, rx, ry + 32, rw, 17, "Vendre au serveur  +" + total + " $", 400, mx, my);
+        g.drawString(font, "Valeur serveur : " + unit + " pièces/unité · §eTotal : " + total + " pièces", rx, ry + 18, MUTED);
+        button(g, rx, ry + 32, rw, 17, "Vendre au serveur  +" + total + " pièces", 400, mx, my);
 
         g.fill(rx, ry + 58, rx + rw, ry + 59, 0xFFAA8844);
         g.drawString(font, "Mise en vente entre joueurs :", rx, ry + 64, TITLE);
         int fx = rx, fy = ry + 78, fw = 84, fh = 15;
         g.fill(fx, fy, fx + fw, fy + fh, priceFocus ? 0xFF342A3E : 0xFF1A1420);
         outline(g, fx, fy, fw, fh, priceFocus ? 0xFFFFCC55 : 0xFFAA8844);
-        String shown = priceIn.isEmpty() ? (unit * 2) + " $" : priceIn;
+        String shown = priceIn.isEmpty() ? (unit * 2) + " pièces" : priceIn;
         g.drawString(font, shown, fx + 4, fy + 4, priceIn.isEmpty() ? FAINT : GOLD);
         if (priceFocus && (System.currentTimeMillis() / 500) % 2 == 0) {
             int cwid = font.width(priceIn);

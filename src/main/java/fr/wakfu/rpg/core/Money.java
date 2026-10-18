@@ -127,7 +127,7 @@ public final class Money {
         sync(p);
         p.displayClientMessage(Component.literal(
                 "§6" + n + " lingot" + (n > 1 ? "s" : "") + " converti" + (n > 1 ? "s" : "")
-                        + " en §e" + gained + " $§6 — l'argent s'affiche dans le HUD et le Grimoire."), true);
+                        + " en §e" + gained + " pièces§6 — la bourse est visible dans le HUD et le Grimoire."), true);
     }
 
     /** Formatage français : 1 234 567 (groupes de 3, espace fine remplacee par espace simple). */

@@ -5,9 +5,22 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ArmorItem;
+import net.minecraft.world.item.ArmorMaterial;
+import net.minecraft.world.item.ArmorItem.Type;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import software.bernie.geckolib.animatable.GeoItem;
+import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.core.animatable.instance.SingletonAnimatableInstanceCache;
+import software.bernie.geckolib.core.animation.AnimatableManager;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
+import java.util.function.Consumer;
 
 import net.minecraft.util.RandomSource;
 
@@ -18,7 +31,18 @@ import net.minecraft.util.RandomSource;
  * Etoiles (fusion x4 chez le forgeron sombre) : stats x1.5 par etoile, max 5.
  * Clic droit = equipe dans la slot d'armure vanilla correspondante (echange).
  */
-public class WakfuArmorItem extends Item {
+public class WakfuArmorItem extends ArmorItem implements GeoItem {
+
+    private static final ArmorMaterial MATERIAL = new ArmorMaterial() {
+        @Override public int getDurabilityForType(Type type) { return 180; }
+        @Override public int getDefenseForType(Type type) { return 0; }
+        @Override public int getEnchantmentValue() { return 12; }
+        @Override public SoundEvent getEquipSound() { return SoundEvents.ARMOR_EQUIP_GENERIC; }
+        @Override public Ingredient getRepairIngredient() { return Ingredient.of(Items.IRON_INGOT); }
+        @Override public String getName() { return "wakfurpg:wakfu"; }
+        @Override public float getToughness() { return 0; }
+        @Override public float getKnockbackResistance() { return 0; }
+    };
 
     public static final int SLOT_HEAD = 3, SLOT_CHEST = 2, SLOT_LEGS = 1, SLOT_FEET = 0;
 
@@ -60,13 +84,89 @@ public class WakfuArmorItem extends Item {
             {{5, 2, 0, 0}, {10, 3, 0, 2}, {16, 5, 2, 3}},
     };
 
-    public WakfuArmorItem(Properties p) {
-        super(p);
+    private final String fantasyModel;
+    private final AnimatableInstanceCache cache = new SingletonAnimatableInstanceCache(this);
+
+    public WakfuArmorItem(Type type, Properties p) {
+        this(type, p, "hero");
+    }
+
+    public WakfuArmorItem(Type type, Properties p, String fantasyModel) {
+        super(MATERIAL, type, p.durability(180));
+        this.fantasyModel = fantasyModel;
+    }
+
+    public String fantasyModel() { return fantasyModel; }
+
+    @Override public void registerControllers(AnimatableManager.ControllerRegistrar controllers) { }
+    @Override public AnimatableInstanceCache getAnimatableInstanceCache() { return cache; }
+
+    @Override
+    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+        consumer.accept(new IClientItemExtensions() {
+            private fr.wakfu.rpg.client.FantasyArmorRenderer renderer;
+
+            @Override
+            public net.minecraft.client.model.HumanoidModel<?> getHumanoidArmorModel(
+                    net.minecraft.world.entity.LivingEntity entity, ItemStack stack,
+                    net.minecraft.world.entity.EquipmentSlot slot,
+                    net.minecraft.client.model.HumanoidModel<?> original) {
+                if (renderer == null) renderer = new fr.wakfu.rpg.client.FantasyArmorRenderer(fantasyModel);
+                renderer.prepForRender(entity, stack, slot, original);
+                return renderer;
+            }
+        });
+    }
+
+    private static Item itemForSlot(String slot) {
+        return switch (slot) {
+            case "head" -> fr.wakfu.rpg.registry.ModItems.WAKFU_ARMOR.get();
+            case "chest" -> fr.wakfu.rpg.registry.ModItems.WAKFU_ARMOR_CHEST.get();
+            case "legs" -> fr.wakfu.rpg.registry.ModItems.WAKFU_ARMOR_LEGS.get();
+            default -> fr.wakfu.rpg.registry.ModItems.WAKFU_ARMOR_FEET.get();
+        };
+    }
+
+    private static Item itemForFantasySlot(String set, String slot) {
+        return fr.wakfu.rpg.registry.ModItems.fantasyArmorItem(set, slot);
+    }
+
+    private static Item itemForSetSlot(String set, String slot) {
+        if (fantasySetOrdinal(set) >= 0) return itemForFantasySlot(set, slot);
+        if (setOrdinal(set) < SETS.length && SETS[setOrdinal(set)].equals(set))
+            return fr.wakfu.rpg.registry.ModItems.zoneSetArmorItem(set, slot);
+        return itemForSlot(slot);
+    }
+
+    public static ItemStack rebindToSlot(ItemStack oldStack) {
+        if (!(oldStack.getItem() instanceof WakfuArmorItem armor)) return oldStack;
+        String slot = slotOf(oldStack);
+        Type expected = switch (slot) {
+            case "head" -> Type.HELMET;
+            case "chest" -> Type.CHESTPLATE;
+            case "legs" -> Type.LEGGINGS;
+            default -> Type.BOOTS;
+        };
+        String set = setOf(oldStack);
+        Item reboundItem = itemForSetSlot(set, slot);
+        if (armor.getType() == expected && armor == reboundItem) return oldStack;
+        ItemStack rebound = new ItemStack(reboundItem, oldStack.getCount());
+        if (oldStack.hasTag()) rebound.setTag(oldStack.getTag().copy());
+        return rebound;
     }
 
     public static String slotOf(ItemStack s) {
-        String sl = s.getOrCreateTag().getString("slot");
-        return sl.isEmpty() ? "feet" : sl;
+        String sl = s.getTag() == null ? "" : s.getTag().getString("slot");
+        if (slotOrdinal(sl) < SLOTS.length && SLOTS[slotOrdinal(sl)].equals(sl)) return sl;
+        if (s.getItem() instanceof WakfuArmorItem armor) {
+            return switch (armor.getType()) {
+                case HELMET -> "head";
+                case CHESTPLATE -> "chest";
+                case LEGGINGS -> "legs";
+                case BOOTS -> "feet";
+            };
+        }
+        return "feet";
     }
 
     public static int slotIndex(ItemStack s) {
@@ -102,13 +202,53 @@ public class WakfuArmorItem extends Item {
         return 0;
     }
 
-    public static String setNameFr(String set) { return SET_NAMES[setOrdinal(set)]; }
-    public static String setSource(String set) { return SET_SOURCES[setOrdinal(set)]; }
-    public static int setColor(String set) { return SET_COLORS[setOrdinal(set)]; }
-    public static String setChatColor(String set) { return SET_CHAT[setOrdinal(set)]; }
-    public static int[] setBonus(String set) { return SET_BONUS[setOrdinal(set)]; }
+    public static String setNameFr(String set) {
+        int idx = fantasySetOrdinal(set);
+        return idx >= 0 ? FANTASY_NAMES[idx] : SET_NAMES[setOrdinal(set)];
+    }
+    public static String setSource(String set) {
+        int idx = fantasySetOrdinal(set);
+        return idx >= 0 ? "Fantasy Armor · niveau conseillé " + (5 + idx * 8) + "+" : SET_SOURCES[setOrdinal(set)];
+    }
+    public static int setColor(String set) {
+        int idx = fantasySetOrdinal(set);
+        return idx >= 0 ? new int[]{0xFF9B4030, 0xFF75408C, 0xFFC08A24, 0xFF3D678F, 0xFF55515B}[idx]
+                : SET_COLORS[setOrdinal(set)];
+    }
+    public static String setChatColor(String set) {
+        int idx = fantasySetOrdinal(set);
+        return idx >= 0 ? FANTASY_COLORS[idx] : SET_CHAT[setOrdinal(set)];
+    }
+    public static int[] setBonus(String set) {
+        int idx = fantasySetOrdinal(set);
+        if (idx >= 0) return activeBonusForFantasy(idx);
+        return SET_BONUS[setOrdinal(set)];
+    }
+
+    private static int[] activeBonusForFantasy(int idx) {
+        return switch (idx) {
+            case 0 -> new int[]{30, 5, 0, 4, 0, 0};
+            case 1 -> new int[]{15, 3, 8, 2, 0, 0};
+            case 2 -> new int[]{10, 2, 8, 2, 0, 1};
+            case 3 -> new int[]{25, 4, 2, 5, 1, 0};
+            default -> new int[]{8, 6, 10, 0, 0, 1};
+        };
+    }
 
     public static String setBonusLabel(String set) {
+        int fantasy = fantasySetOrdinal(set);
+        if (fantasy >= 0) {
+            int[] b = activeBonusForFantasy(fantasy);
+            StringBuilder label = new StringBuilder();
+            if (b[0] != 0) label.append('+').append(b[0]).append(" PV max · ");
+            if (b[1] != 0) label.append('+').append(b[1]).append(" Force · ");
+            if (b[2] != 0) label.append('+').append(b[2]).append(" Sagesse · ");
+            if (b[3] != 0) label.append('+').append(b[3]).append(" Résistance · ");
+            if (b[4] != 0) label.append('+').append(b[4]).append(" PA · ");
+            if (b[5] != 0) label.append('+').append(b[5]).append(" PM · ");
+            if (label.length() >= 3) label.setLength(label.length() - 3);
+            return label.toString();
+        }
         return switch (setOrdinal(set)) {
             case 0 -> "+25 PV max";
             case 1 -> "+4 Force (degats)";
@@ -119,9 +259,11 @@ public class WakfuArmorItem extends Item {
 
     public static String setForMonster(String monsterId) {
         return switch (monsterId) {
-            case "zombie" -> "plaine";
+            case "zombie", "momic", "momic_venimeux" -> "plaine";
             case "skeleton" -> "os";
-            case "bandit" -> "chemin";
+            case "archer_os" -> "os";
+            case "bandit", "eclaireur_cendres", "brigand_grand_chemin", "assassin_grand_chemin" -> "chemin";
+            case "gardien_racines", "golem_siege", "guerrier_lourd", "sentinelle_forest", "poupee_mecanique" -> "os";
             case "chef_bandit" -> "chef";
             default -> null;
         };
@@ -149,6 +291,12 @@ public class WakfuArmorItem extends Item {
         return -1;
     }
 
+    public static String[] allSetIds() {
+        String[] all = java.util.Arrays.copyOf(SETS, SETS.length + FANTASY_SETS.length);
+        System.arraycopy(FANTASY_SETS, 0, all, SETS.length, FANTASY_SETS.length);
+        return all;
+    }
+
     public static boolean isFantasy(ItemStack s) {
         String set = setOf(s);
         return set != null && set.startsWith("fantasy_");
@@ -157,7 +305,7 @@ public class WakfuArmorItem extends Item {
     public static ItemStack makeFantasyPiece(String fantasySetId, String slot) {
         int setIdx = fantasySetOrdinal(fantasySetId);
         if (setIdx < 0) return ItemStack.EMPTY;
-        ItemStack s = new ItemStack(fr.wakfu.rpg.registry.ModItems.WAKFU_ARMOR.get());
+        ItemStack s = new ItemStack(itemForFantasySlot(fantasySetId, slot));
         var t = s.getOrCreateTag();
         t.putString("slot", slot);
         t.putString("set", fantasySetId);
@@ -202,14 +350,7 @@ public class WakfuArmorItem extends Item {
         if (set == null) return new int[6];
         int fIdx = fantasySetOrdinal(set);
         if (fIdx >= 0) {
-            return switch (fIdx) {
-                case 0 -> new int[]{30, 5, 0, 4, 0, 0};
-                case 1 -> new int[]{15, 3, 8, 2, 0, 0};
-                case 2 -> new int[]{10, 1, 12, 1, 0, 1};
-                case 3 -> new int[]{25, 4, 2, 5, 1, 0};
-                case 4 -> new int[]{8, 6, 10, 0, 0, 1};
-                default -> new int[6];
-            };
+            return activeBonusForFantasy(fIdx);
         }
         return SET_BONUS[setOrdinal(set)];
     }
@@ -269,7 +410,7 @@ public class WakfuArmorItem extends Item {
     }
 
     public static ItemStack makePiece(String slot, String rarity, int lvl, RandomSource rng) {
-        ItemStack s = new ItemStack(fr.wakfu.rpg.registry.ModItems.WAKFU_ARMOR.get());
+        ItemStack s = new ItemStack(itemForSlot(slot));
         var t = s.getOrCreateTag();
         t.putString("slot", slot);
         t.putString("rarity", rarity);
@@ -280,7 +421,7 @@ public class WakfuArmorItem extends Item {
     }
 
     public static ItemStack makeSetPiece(String set, String slot) {
-        ItemStack s = new ItemStack(fr.wakfu.rpg.registry.ModItems.WAKFU_ARMOR.get());
+        ItemStack s = new ItemStack(itemForSetSlot(set, slot));
         var t = s.getOrCreateTag();
         t.putString("slot", slot);
         t.putString("set", set);

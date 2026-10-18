@@ -1,0 +1,6 @@
+{
+    "textures":  {
+                     "layer0":  "wakfurpg:item/fantasy_dragonslayer_boots"
+                 },
+    "parent":  "item/generated"
+}

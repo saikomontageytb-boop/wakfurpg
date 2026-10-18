@@ -165,7 +165,7 @@ public final class Market {
         sp.getInventory().items.set(slot, ItemStack.EMPTY);
         Money.add(sp.getUUID(), total);
         Money.sync(sp);
-        say(sp, "§eVendu au serveur : §f" + name + " §7×" + count + " §e→ +" + total + " $");
+        say(sp, "§eVendu au serveur : §f" + name + " §7×" + count + " §e→ +" + total + " pièces");
         sendData(sp, false);
     }
 
@@ -179,7 +179,7 @@ public final class Market {
             return;
         }
         if (price < 1 || price > 1_000_000) {
-            say(sp, "§cPrix invalide (1 $ minimum).");
+            say(sp, "§cPrix invalide (1 pièce minimum).");
             return;
         }
         if (LISTINGS.size() >= 100) {
@@ -189,7 +189,7 @@ public final class Market {
         sp.getInventory().items.set(slot, ItemStack.EMPTY);
         LISTINGS.add(new Listing(nextId++, sp.getUUID(), sp.getName().getString(), s.copy(), price));
         save();
-        say(sp, "§6Annonce créée : §f" + s.getHoverName().getString() + " §6à §e" + price + " $");
+        say(sp, "§6Annonce créée : §f" + s.getHoverName().getString() + " §6à §e" + price + " pièces");
         sendData(sp, false);
         broadcastOthers(sp);
     }
@@ -207,7 +207,7 @@ public final class Market {
             return;
         }
         if (Money.balance(sp.getUUID()) < l.price()) {
-            say(sp, "§cIl te manque §e" + (l.price() - Money.balance(sp.getUUID())) + " $ §cpour cet achat.");
+            say(sp, "§cIl te manque §e" + (l.price() - Money.balance(sp.getUUID())) + " pièces §cpour cet achat.");
             return;
         }
         LISTINGS.remove(l);
@@ -217,7 +217,7 @@ public final class Market {
         give(sp, bought);
         Codex.item(sp, bought.copy());
         Money.sync(sp);
-        say(sp, "§aAcheté : §f" + name + " §a(-" + l.price() + " $)");
+        say(sp, "§aAcheté : §f" + name + " §a(-" + l.price() + " pièces)");
         save();
         sendData(sp, false);
         // vendeur crédité — même déconnecté (grand livre) ; notifié si en ligne
@@ -225,7 +225,7 @@ public final class Market {
         if (seller != null) {
             Money.sync(seller);
             say(seller, "§6Vente conclue : §f" + name + " §6→ " + sp.getName().getString()
-                    + " §6(§e+" + l.price() + " $§6)");
+                    + " §6(§e+" + l.price() + " pièces§6)");
             sendData(seller, false);
         }
         broadcastOthers(sp);

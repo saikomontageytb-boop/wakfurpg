@@ -5,6 +5,7 @@ import fr.wakfu.rpg.core.ClientProxyHook;
 import fr.wakfu.rpg.core.ModCapabilities;
 import fr.wakfu.rpg.registry.ModEntities;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.entity.player.PlayerRenderer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
@@ -37,6 +38,8 @@ public class ClientEvents {
         event.registerEntityRenderer(ModEntities.MERCHANT.get(), NpcRenderer::new);
         event.registerEntityRenderer(ModEntities.MARKET.get(), NpcRenderer::new);
         event.registerEntityRenderer(ModEntities.HERALD.get(), NpcRenderer::new);
+        event.registerEntityRenderer(ModEntities.SAILOR.get(), NpcRenderer::new);
+        event.registerEntityRenderer(ModEntities.DUNGEON_NPC.get(), NpcRenderer::new);
         event.registerEntityRenderer(ModEntities.MONSTER.get(), MonsterRenderer::new);
 
         // v0.29 : Montures
@@ -47,6 +50,16 @@ public class ClientEvents {
         event.registerEntityRenderer(ModEntities.FAMILIAR_CAT.get(), FamiliarRenderer::new);
         event.registerEntityRenderer(ModEntities.FAMILIAR_DRAGON.get(), FamiliarRenderer::new);
         event.registerEntityRenderer(ModEntities.FAMILIAR_GOLEM.get(), FamiliarRenderer::new);
+    }
+
+    @SubscribeEvent
+    public static void onAddLayers(EntityRenderersEvent.AddLayers event) {
+        for (String skin : event.getSkins()) {
+            PlayerRenderer renderer = event.getPlayerSkin(skin);
+            if (renderer != null) {
+                renderer.addLayer(new ClassSkinLayer(renderer, event.getEntityModels(), "slim".equals(skin)));
+            }
+        }
     }
 
     @SubscribeEvent
@@ -61,11 +74,14 @@ public class ClientEvents {
         event.enqueueWork(() -> {
             ClientProxyHook.openDialogue = (id, node) ->
                     Minecraft.getInstance().setScreen(new DialogueScreen(id, node));
+            ClientProxyHook.openClassSelect = () -> Minecraft.getInstance().setScreen(new ClassSelectScreen());
             ClientProxyHook.onCombatState = ClientCombatHud::set;
             ClientProxyHook.onCombatFx = SpellFx::play;
+            ClientProxyHook.onDamagePopup = p -> DamagePopups.add(p.entityId, p.amount, p.healing);
             ClientProxyHook.openMarket = (open) -> {
                 if (open) Minecraft.getInstance().setScreen(new MarketScreen());
             };
+            ClientProxyHook.openDungeon = info -> Minecraft.getInstance().setScreen(new DungeonEntryScreen(info));
         });
     }
 
@@ -130,6 +146,10 @@ public class ClientEvents {
                 if (data.hasClass()) event.setCanceled(true);
             });
         }
+
+        @SubscribeEvent
+        public static void onRenderHand(net.minecraftforge.client.event.RenderHandEvent event) {
+            if (ClientCombatHud.get().inCombat) event.setCanceled(true);
+        }
     }
 }
-

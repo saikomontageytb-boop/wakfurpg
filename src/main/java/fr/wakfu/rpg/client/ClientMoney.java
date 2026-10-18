@@ -24,8 +24,8 @@ public final class ClientMoney {
         return fr.wakfu.rpg.core.Money.fmt(v);
     }
 
-    /** "$ 1 234" */
+    /** "1 234 pièces" */
     public static String str() {
-        return "$ " + fmt(value);
+        return fmt(value) + " pièces";
     }
 }

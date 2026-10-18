@@ -80,9 +80,10 @@ public class CombatLerp {
         double cz = st.oppCellZ + 0.5;
         for (Entity e : mc.level.entitiesForRendering()) {
             if (Math.abs(e.getY() - st.floorY) > 2.5) continue;
+            boolean alexModel = e.getTags().contains("wakfurpg_alex_model");
             boolean ok = st.pvp
                     ? (e instanceof Player && e != mc.player)
-                    : (e instanceof MonsterNpc);
+                    : (alexModel || e instanceof MonsterNpc);
             if (!ok) continue;
             double d = e.distanceToSqr(cx, st.floorY, cz);
             if (d < bd) {
@@ -111,7 +112,13 @@ public class CombatLerp {
                 continue;
             }
             double s = t * t * (3 - 2 * t); // smoothstep
-            setPos(l.e, l.fx + (l.tx - l.fx) * s, l.y, l.fz + (l.tz - l.fz) * s, mc);
+            double x = l.fx + (l.tx - l.fx) * s;
+            double z = l.fz + (l.tz - l.fz) * s;
+            setPos(l.e, x, l.y, z, mc);
+            if (l.e instanceof net.minecraft.world.entity.LivingEntity living) {
+                float speed = (float) Math.hypot(l.tx - l.fx, l.tz - l.fz) / (DUR / 50.0f);
+                living.walkAnimation.update(Math.min(0.22f, speed), 1.0f);
+            }
             l.e.setDeltaMovement(0, 0, 0);
         }
     }

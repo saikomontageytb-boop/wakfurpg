@@ -1,0 +1,296 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "wakfurpg:item/armor_chest_commune"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 1
+      },
+      "model": "wakfurpg:item/armor_head_commune"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 2
+      },
+      "model": "wakfurpg:item/armor_head_rare"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 3
+      },
+      "model": "wakfurpg:item/armor_head_epique"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 4
+      },
+      "model": "wakfurpg:item/armor_chest_commune"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 5
+      },
+      "model": "wakfurpg:item/armor_chest_rare"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 6
+      },
+      "model": "wakfurpg:item/armor_chest_epique"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 7
+      },
+      "model": "wakfurpg:item/armor_legs_commune"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 8
+      },
+      "model": "wakfurpg:item/armor_legs_rare"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 9
+      },
+      "model": "wakfurpg:item/armor_legs_epique"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 10
+      },
+      "model": "wakfurpg:item/armor_feet_commune"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 11
+      },
+      "model": "wakfurpg:item/armor_feet_rare"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 12
+      },
+      "model": "wakfurpg:item/armor_feet_epique"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 13
+      },
+      "model": "wakfurpg:item/set_plaine_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 14
+      },
+      "model": "wakfurpg:item/set_plaine_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 15
+      },
+      "model": "wakfurpg:item/set_plaine_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 16
+      },
+      "model": "wakfurpg:item/set_plaine_feet"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 17
+      },
+      "model": "wakfurpg:item/set_os_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 18
+      },
+      "model": "wakfurpg:item/set_os_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 19
+      },
+      "model": "wakfurpg:item/set_os_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 20
+      },
+      "model": "wakfurpg:item/set_os_feet"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 21
+      },
+      "model": "wakfurpg:item/set_chemin_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 22
+      },
+      "model": "wakfurpg:item/set_chemin_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 23
+      },
+      "model": "wakfurpg:item/set_chemin_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 24
+      },
+      "model": "wakfurpg:item/set_chemin_feet"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 25
+      },
+      "model": "wakfurpg:item/set_chef_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 26
+      },
+      "model": "wakfurpg:item/set_chef_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 27
+      },
+      "model": "wakfurpg:item/set_chef_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 28
+      },
+      "model": "wakfurpg:item/set_chef_feet"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 29
+      },
+      "model": "wakfurpg:item/fantasy_dragonslayer_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 30
+      },
+      "model": "wakfurpg:item/fantasy_dragonslayer_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 31
+      },
+      "model": "wakfurpg:item/fantasy_dragonslayer_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 32
+      },
+      "model": "wakfurpg:item/fantasy_dragonslayer_feet"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 33
+      },
+      "model": "wakfurpg:item/fantasy_eclipse_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 34
+      },
+      "model": "wakfurpg:item/fantasy_eclipse_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 35
+      },
+      "model": "wakfurpg:item/fantasy_eclipse_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 36
+      },
+      "model": "wakfurpg:item/fantasy_eclipse_feet"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 37
+      },
+      "model": "wakfurpg:item/fantasy_golden_horns_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 38
+      },
+      "model": "wakfurpg:item/fantasy_golden_horns_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 39
+      },
+      "model": "wakfurpg:item/fantasy_golden_horns_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 40
+      },
+      "model": "wakfurpg:item/fantasy_golden_horns_feet"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 41
+      },
+      "model": "wakfurpg:item/fantasy_hero_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 42
+      },
+      "model": "wakfurpg:item/fantasy_hero_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 43
+      },
+      "model": "wakfurpg:item/fantasy_hero_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 44
+      },
+      "model": "wakfurpg:item/fantasy_hero_feet"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 45
+      },
+      "model": "wakfurpg:item/fantasy_thief_head"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 46
+      },
+      "model": "wakfurpg:item/fantasy_thief_chest"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 47
+      },
+      "model": "wakfurpg:item/fantasy_thief_legs"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 48
+      },
+      "model": "wakfurpg:item/fantasy_thief_feet"
+    }
+  ]
+}

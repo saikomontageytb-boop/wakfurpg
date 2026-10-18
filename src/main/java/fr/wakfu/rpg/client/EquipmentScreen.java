@@ -19,29 +19,29 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * v0.18 : Sac & Équipement RPG (touche I).
- * - Colonne gauche : slots dédiés (heaume, cuirasse, jambières, bottes, arme)
- *   encadrés d'or — clic pour retirer.
- * - Grille 36 slots de l'inventaire — clic pour équiper (armure -> slot dédié,
+ * v0.18 : Sac & ?quipement RPG (touche I).
+ * - Colonne gauche : slots d?di?s (heaume, cuirasse, jambi?res, bottes, arme)
+ *   encadr?s d'or ? clic pour retirer.
+ * - Grille 36 slots de l'inventaire ? clic pour ?quiper (armure -> slot d?di?,
  *   arme -> slot d'arme RPG).
- * - Infobulle gothique custom au survol : nom teinté par rareté, étoiles,
- *   stats fixes, et DELTA vert/rouge contre la pièce déjà équipée.
+ * - Infobulle gothique custom au survol : nom teint? par raret�, ?toiles,
+ *   stats fixes, et DELTA vert/rouge contre la pi�ce d?j? ?quip?e.
  */
 public class EquipmentScreen extends Screen {
 
     private static final ResourceLocation PANEL =
-            new ResourceLocation(WakfuRPG.MODID, "textures/gui/equipment_panel.png");
+            new ResourceLocation(WakfuRPG.MODID, "textures/gui/equipment_reference.png");
 
-    private static final int PW = 384, PH = 256;
+    private static final int PW = 384, PH = 240;
     private static final int SLOT = 22;
 
-    /** x,y,w,h,code — code >= 0 : index inventaire ; -1..-4 : retirer armure ; -5 : retirer arme ; -99 fermer. */
+    /** x,y,w,h,code ? code >= 0 : index inventaire ; -1..-4 : retirer armure ; -5 : retirer arme ; -99 fermer. */
     private final List<int[]> rects = new ArrayList<>();
     private ItemStack hoverStack = ItemStack.EMPTY;
     private int hoverCode = 0;
 
     public EquipmentScreen() {
-        super(Component.literal("Sac & Équipement"));
+        super(Component.literal("Sac & ?quipement"));
     }
 
     @Override
@@ -63,35 +63,27 @@ public class EquipmentScreen extends Screen {
         rects.clear();
         hoverStack = ItemStack.EMPTY;
         int px = width / 2 - PW / 2, py = height / 2 - PH / 2;
-        // v0.23 : fond sombre PROGRAMMATIQUE — plus de dépendance à la texture,
-        // textes clairs garantis lisibles
-        g.fill(px, py, px + PW, py + PH, 0xFF141018);
-        g.fill(px + 2, py + 2, px + PW - 2, py + PH - 2, 0xFF3A2E44);
-        g.fill(px + 4, py + 4, px + PW - 4, py + PH - 4, 0xFF241C2A);
-        g.fill(px + 4, py + 4, px + PW - 4, py + 26, 0xFF332840);
-        g.fill(px + 4, py + 26, px + PW - 4, py + 27, 0xFFAA8844);
+        g.blit(PANEL, px, py, PW, PH, 0, 0, 1225, 768, 1225, 768);
 
         var player = Minecraft.getInstance().player;
         if (player == null) return;
 
-        g.drawString(font, "Sac & Équipement", px + 14, py + 10, 0xFFFFCC77);
-        String hint = "I — clic : équiper / retirer";
-        g.drawString(font, hint, px + PW - 10 - font.width(hint), py + 13, 0xFFB8A888);
-        // v0.25 : bourse ($) dans l'en-tête
-        String money = "$ " + fr.wakfu.rpg.client.ClientMoney.fmt(fr.wakfu.rpg.client.ClientMoney.get());
-        g.drawString(font, money, px + PW - 18 - font.width(hint) - font.width(money), py + 13, 0xFFDD66);
+        String money = fr.wakfu.rpg.client.ClientMoney.fmt(fr.wakfu.rpg.client.ClientMoney.get()) + " pi?ces";
+        g.pose().pushPose();
+        g.pose().translate(px + 210, py + 14, 0);
+        g.pose().scale(0.78f, 0.78f, 1.0f);
+        g.drawCenteredString(CleanFont.get(), money, 0, 0, 0xFFFFC84D);
+        g.pose().popPose();
 
-        // ---------------- slots équipés (paper-doll)
-        int ex = px + 36;
-        int[] eys = {py + 46, py + 76, py + 106, py + 136};
-        String[] elabels = {"Heaume", "Cuirasse", "Jambières", "Bottes"};
+        // ---------------- slots ?quip?s (paper-doll)
+        int ex = px + 41;
+        int[] eys = {py + 43, py + 69, py + 95, py + 121};
         int[] armorIdx = {WakfuArmorItem.SLOT_HEAD, WakfuArmorItem.SLOT_CHEST,
                 WakfuArmorItem.SLOT_LEGS, WakfuArmorItem.SLOT_FEET};
         int totVie = 0, totFor = 0, totSag = 0, totRes = 0;
         for (int i = 0; i < 4; i++) {
             ItemStack eq = player.getInventory().getArmor(armorIdx[i]);
-            drawSlot(g, ex, eys[i], eq, -(i + 1), mx, my);
-            g.drawString(font, elabels[i], ex + SLOT + 6, eys[i] + 7, 0xFFC8B898);
+            drawReferenceSlot(g, ex, eys[i], eq, -(i + 1), mx, my);
             if (!eq.isEmpty()) {
                 int[] f = WakfuArmorItem.fixedStats(eq);
                 totVie += f[0];
@@ -100,11 +92,10 @@ public class EquipmentScreen extends Screen {
                 totRes += f[3];
             }
         }
-        int wy = py + 172;
+        int wy = py + 147;
         PlayerRpgData data = player.getCapability(ModCapabilities.RPG).resolve().orElse(null);
         ItemStack wep = data != null ? data.getEquippedWeapon() : ItemStack.EMPTY;
-        drawSlot(g, ex, wy, wep, -5, mx, my);
-        g.drawString(font, "Arme", ex + SLOT + 6, wy + 7, 0xFFC8B898);
+        drawReferenceSlot(g, ex, wy, wep, -5, mx, my);
         if (!wep.isEmpty()) {
             int[] f = WakfuWeaponItem.fixedStats(wep);
             totVie += f[0];
@@ -113,56 +104,59 @@ public class EquipmentScreen extends Screen {
             totRes += f[3];
         }
         // v0.31 : slot monture
-        int mty = wy + SLOT + 8;
+        int mty = py + 173;
         String mountType = data != null ? data.getEquippedMount() : "";
-        g.fill(ex, mty, ex + SLOT + 4, mty + SLOT + 4, 0xFF2A2A3A);
-        g.fill(ex, mty, ex + SLOT + 4, mty + 1, mountType.isEmpty() ? 0xFF555555 : 0xFFCCAA33);
-        g.fill(ex, mty + SLOT + 3, ex + SLOT + 4, mty + SLOT + 4, mountType.isEmpty() ? 0xFF555555 : 0xFFCCAA33);
-        g.fill(ex, mty, ex + 1, mty + SLOT + 4, mountType.isEmpty() ? 0xFF555555 : 0xFFCCAA33);
-        g.fill(ex + SLOT + 3, mty, ex + SLOT + 4, mty + SLOT + 4, mountType.isEmpty() ? 0xFF555555 : 0xFFCCAA33);
-        if (!mountType.isEmpty()) {
-            String icon = switch (mountType) {
-                case "bear" -> "§6\uD83D\uDC3B";
-                case "griffin" -> "§e\uD83E\uDD85";
-                default -> "§b\uD83D\uDC3A";
-            };
-            g.drawString(font, icon, ex + 5, mty + 4, 0xFFFFFF);
-        } else {
-            g.drawString(font, "§7Monture", ex + 2, mty + 5, 0x999999);
-        }
-        rects.add(new int[]{ex, mty, SLOT + 4, SLOT + 4, -6});
+        drawReferenceSlot(g, ex, mty, ItemStack.EMPTY, -6, mx, my);
 
-        String tot = "Bonus : +" + totVie + " PV  +" + totFor + " For  +" + totSag + " Sag  +" + totRes + " Rés";
-        g.drawString(font, tot, px + 20, py + PH - 24, 0xFFAACC88);
+        String tot = "Bonus : +" + totVie + " PV  +" + totFor + " For  +" + totSag + " Sag  +" + totRes + " R?s";
+        g.fill(px + 30, py + 200, px + 176, py + 220, 0xFF242220);
+        g.pose().pushPose();
+        g.pose().translate(px + 34, py + 207, 0);
+        g.pose().scale(0.78f, 0.78f, 1.0f);
+        g.drawString(CleanFont.get(), trunc(tot, 178), 0, 0, 0xFFAACC88, false);
+        g.pose().popPose();
 
         // ---------------- grille inventaire 6x6 (36 slots)
-        int gx = px + 196, gy = py + 46;
+        int gx = px + 181, gy = py + 41;
         var items = player.getInventory().items;
         for (int r = 0; r < 6; r++) {
             for (int c = 0; c < 6; c++) {
                 int idx = r * 6 + c;
-                int sx = gx + c * (SLOT + 2), sy = gy + r * (SLOT + 2);
+                int sx = gx + c * 25, sy = gy + r * 25;
                 ItemStack st = idx < items.size() ? items.get(idx) : ItemStack.EMPTY;
-                drawSlot(g, sx, sy, st, idx, mx, my);
+                drawReferenceSlot(g, sx, sy, st, idx, mx, my);
             }
         }
 
         // ---------------- v0.25 : retour au Grimoire
-        int rx = px + PW - 158, ry = py + PH - 30;
-        g.fill(rx, ry, rx + 78, ry + 18, 0xFF3A2E44);
-        g.fill(rx, ry, rx + 78, ry + 1, 0xFFAA8844);
-        g.drawString(font, "← Grimoire", rx + 39 - font.width("← Grimoire") / 2, ry + 5, 0xFFCCAA77);
-        rects.add(new int[]{rx, ry, 78, 18, -98});
+        int rx = px + 219, ry = py + 200;
+        rects.add(new int[]{rx, ry, 58, 19, -98});
 
         // ---------------- bouton fermer
-        int bx = px + PW - 74, by = py + PH - 30;
-        g.fill(bx, by, bx + 60, by + 18, 0xFF3A2A20);
-        g.fill(bx, by, bx + 60, by + 1, 0xFFFFAA55);
-        g.drawString(font, "Fermer", bx + 12, by + 5, 0xFFE8D8B8);
-        rects.add(new int[]{bx, by, 60, 18, -99});
+        int bx = px + 288, by = py + 200;
+        rects.add(new int[]{bx, by, 53, 19, -99});
 
         // ---------------- infobulle gothique custom
         if (!hoverStack.isEmpty()) drawTooltip(g, mx, my);
+    }
+
+    private void drawReferenceSlot(GuiGraphics g, int x, int y, ItemStack stack, int code, int mx, int my) {
+        boolean hovered = mx >= x && mx < x + SLOT && my >= y && my < y + SLOT;
+        if ((code < 0 && code != -6) || !stack.isEmpty())
+            g.fill(x + 2, y + 2, x + SLOT - 1, y + SLOT - 1, 0xFF242220);
+        if (!stack.isEmpty()) g.renderItem(stack, x + 3, y + 3);
+        if (hovered && (code < 0 || !stack.isEmpty())) {
+            hoverStack = stack;
+            hoverCode = code;
+            g.fill(x + 1, y + 1, x + SLOT - 1, y + 2, 0xFFFFD477);
+            g.fill(x + 1, y + SLOT - 2, x + SLOT - 1, y + SLOT - 1, 0xFFFFD477);
+        }
+        rects.add(new int[]{x, y, SLOT, SLOT, code});
+    }
+
+    private String trunc(String text, int width) {
+        while (font.width(text) > width && text.length() > 4) text = text.substring(0, text.length() - 2);
+        return text;
     }
 
     private void drawSlot(GuiGraphics g, int x, int y, ItemStack st, int code, int mx, int my) {
@@ -184,7 +178,7 @@ public class EquipmentScreen extends Screen {
         rects.add(new int[]{x, y, SLOT, SLOT, code});
     }
 
-    /** Infobulle custom : nom + rareté + étoiles + stats + delta vs équipé. */
+    /** Infobulle custom : nom + raret� + ?toiles + stats + delta vs ?quip?. */
     private void drawTooltip(GuiGraphics g, int mx, int my) {
         var player = Minecraft.getInstance().player;
         if (player == null) return;
@@ -200,7 +194,7 @@ public class EquipmentScreen extends Screen {
             String what = switch (hoverCode) {
                 case -1 -> "Heaume";
                 case -2 -> "Cuirasse";
-                case -3 -> "Jambières";
+                case -3 -> "Jambi?res";
                 case -4 -> "Bottes";
                 default -> "Arme";
             };
@@ -225,13 +219,13 @@ public class EquipmentScreen extends Screen {
                 colors.add(rarityColor(rarity));
             }
             if (stars > 0) {
-                lines.add("★".repeat(stars) + (stars > 1 ? "  (stats ×1.5/étoile)" : "  (stats ×1.5)"));
+                lines.add("?".repeat(stars) + (stars > 1 ? "  (stats ?1.5/?toile)" : "  (stats ?1.5)"));
                 colors.add(0xFFFFCC55);
             }
             f = armor ? WakfuArmorItem.fixedStats(st) : WakfuWeaponItem.fixedStats(st);
             ItemStack eq = ItemStack.EMPTY;
             if (hoverCode < 0) {
-                eq = st;   // survol d'un slot équipé : pas de comparaison
+                eq = st;   // survol d'un slot ?quip? : pas de comparaison
             } else if (armor) {
                 eq = player.getInventory().getArmor(WakfuArmorItem.slotIndex(st));
             } else {
@@ -241,7 +235,7 @@ public class EquipmentScreen extends Screen {
             if (hoverCode >= 0 && !eq.isEmpty()) {
                 old = armor ? WakfuArmorItem.fixedStats(eq) : WakfuWeaponItem.fixedStats(eq);
             }
-            String[] names = {"PV", "Force", "Sagesse", "Résistance"};
+            String[] names = {"PV", "Force", "Sagesse", "R?sistance"};
             for (int i = 0; i < 4; i++) {
                 if (f[i] > 0 || (old != null && old[i] > 0)) {
                     StringBuilder b = new StringBuilder();
@@ -251,10 +245,10 @@ public class EquipmentScreen extends Screen {
                     if (old != null) {
                         int dlt = f[i] - old[i];
                         if (dlt > 0) {
-                            b.append("   ▲ +").append(dlt);
+                            b.append("   ? +").append(dlt);
                             col = 0xFF77DD66;
                         } else if (dlt < 0) {
-                            b.append("   ▼ ").append(dlt);
+                            b.append("   ? ").append(dlt);
                             col = 0xFFDD6655;
                         } else {
                             b.append("   =");
@@ -266,16 +260,16 @@ public class EquipmentScreen extends Screen {
                 }
             }
             if (hoverCode >= 0) {
-                lines.add("Clic : équiper");
+                lines.add("Clic : ?quiper");
                 colors.add(0xFFFFCC77);
             } else {
                 lines.add("Clic : retirer");
                 colors.add(0xFFCC9966);
             }
         } else if (!st.isEmpty()) {
-            lines.add(st.getHoverName().getString().replaceAll("§.", ""));
+            lines.add(st.getHoverName().getString().replaceAll("�.", ""));
             colors.add(0xFFE8E0D0);
-            lines.add("Non équipable");
+            lines.add("Non ?quipable");
             colors.add(0xFFB0A088);
         } else {
             return;
@@ -313,7 +307,7 @@ public class EquipmentScreen extends Screen {
                         Minecraft.getInstance().setScreen(new GrimoireScreen());
                         return true;
                     }
-                    // n'envoie que si pertinent (slot équipe non vide / inventaire non vide)
+                    // n'envoie que si pertinent (slot ?quipe non vide / inventaire non vide)
                     Network.CHANNEL.sendToServer(new EquipPacket(r[4]));
                     return true;
                 }

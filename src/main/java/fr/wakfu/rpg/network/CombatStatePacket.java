@@ -34,7 +34,7 @@ public class CombatStatePacket {
     public final int size;
     public final int cameraId;
     public final List<int[]> summons;
-    /** v0.18 : pieges {x, z, coteRelatif(0=moi)}. */
+    /** Pieges client {x, z, coteRelatif(0=moi), effet}. */
     public final List<int[]> traps;
     /** v0.19 : unites {sideRel(0=moi), kind(0 joueur/1 mob), x, z, hp, maxHp, active}. */
     public final List<int[]> units;
@@ -141,7 +141,10 @@ public class CombatStatePacket {
         }
         buf.writeVarInt(msg.traps.size());
         for (int[] t : msg.traps) {
-            for (int v : t) buf.writeVarInt(v);
+            buf.writeVarInt(t[0]);
+            buf.writeVarInt(t[1]);
+            buf.writeVarInt(t[2]);
+            buf.writeVarInt(t.length > 4 ? t[4] : 0);
         }
         // v0.19
         buf.writeVarInt(msg.units.size());
@@ -172,8 +175,8 @@ public class CombatStatePacket {
         int nt = buf.readVarInt();
         List<int[]> traps = new ArrayList<>(nt);
         for (int i = 0; i < nt && i < 6; i++) {
-            int[] t = new int[3];
-            for (int k = 0; k < 3; k++) t[k] = buf.readVarInt();
+            int[] t = new int[4];
+            for (int k = 0; k < 4; k++) t[k] = buf.readVarInt();
             traps.add(t);
         }
         int nu = buf.readVarInt();

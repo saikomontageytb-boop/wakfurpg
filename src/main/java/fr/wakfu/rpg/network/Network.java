@@ -9,7 +9,7 @@ import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 public class Network {
-    private static final String PROTOCOL = "7";
+    private static final String PROTOCOL = "8";
     public static SimpleChannel CHANNEL;
 
     public static void init() {
@@ -61,6 +61,14 @@ public class Network {
                 VictoryPacket::encode, VictoryPacket::decode, VictoryPacket::handle);
         CHANNEL.registerMessage(20, ZoomPacket.class,
                 ZoomPacket::encode, ZoomPacket::decode, ZoomPacket::handle);
+        CHANNEL.registerMessage(21, OpenClassSelectPacket.class,
+                OpenClassSelectPacket::encode, OpenClassSelectPacket::decode, OpenClassSelectPacket::handle);
+        CHANNEL.registerMessage(22, DamagePopupPacket.class,
+                DamagePopupPacket::encode, DamagePopupPacket::decode, DamagePopupPacket::handle);
+        CHANNEL.registerMessage(23, OpenDungeonPacket.class,
+                OpenDungeonPacket::encode, OpenDungeonPacket::decode, OpenDungeonPacket::handle);
+        CHANNEL.registerMessage(24, JoinDungeonPacket.class,
+                JoinDungeonPacket::encode, JoinDungeonPacket::decode, JoinDungeonPacket::handle);
     }
 
     public static void sendToPlayer(ServerPlayer player, Object packet) {

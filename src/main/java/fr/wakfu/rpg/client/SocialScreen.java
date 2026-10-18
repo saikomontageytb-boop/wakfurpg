@@ -8,6 +8,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +21,9 @@ import java.util.UUID;
  * Parchemin clair (même charte que le Grimoire).
  */
 public class SocialScreen extends Screen {
+
+    private static final ResourceLocation PANEL = new ResourceLocation(fr.wakfu.rpg.WakfuRPG.MODID,
+            "textures/gui/social_reference.png");
 
     private static final int INK = 0xFF241B10;
     private static final int INK_TITLE = 0xFF3E2C18;
@@ -59,46 +63,31 @@ public class SocialScreen extends Screen {
         rects.clear();
         px = width / 2 - PW / 2;
         py = height / 2 - PH / 2;
-        g.fill(px, py, px + PW, py + PH, 0xFF3A2A1A);
-        g.fill(px + 2, py + 2, px + PW - 2, py + PH - 2, 0xFF8A6A3A);
-        g.fill(px + 4, py + 4, px + PW - 4, py + PH - 4, 0xFFEDE0C2);
-        g.fill(px + 4, py + 4, px + PW - 4, py + 22, 0xFFE0CDA2);
-        g.fill(px + 4, py + 22, px + PW - 4, py + 23, 0xFF9A7A2A);
+        int panelY = py + 14;
+        g.blit(PANEL, px, panelY, PW, 212, 0, 0, 965, 568, 965, 568);
+        // Remplace les donnees d'exemple de l'image par l'etat du joueur.
+        g.fill(px + 293, panelY + 10, px + 320, panelY + 23, 0xFF292825);
+        g.drawCenteredString(font, ClientMoney.fmt(ClientMoney.get()), px + 307, panelY + 12, 0xFFF2E8D2);
+        g.fill(px + 94, py + 44, px + 352, py + 174, 0xFFF4EEDF);
+        g.fill(px + 94, py + 174, px + 275, py + 207, 0xFFF4EEDF);
 
-        // retour + titre + bourse
-        button(g, px + 5, py + 5, 62, 13, "← Grimoire", 800, mx, my);
-        g.drawString(GothicFont.get(), "Menu Social", px + 74, py + 7, INK_TITLE, false);
-        String money = "$ " + ClientMoney.fmt(ClientMoney.get());
-        g.drawString(font, money, px + PW - 12 - font.width(money), py + 11, INK_GOLD);
-
-        // onglets
+        // Les cadres et les textes fixes viennent de l'image. Seule la selection change.
+        rects.add(new int[]{px + 5, panelY + 2, 54, 21, 800});
         String[] labels = {"Joueurs", "Amis", "Groupe"};
         for (int i = 0; i < 3; i++) {
-            int tx = px + 8, ty = py + 30 + i * 24, tw = 80, th = 20;
-            boolean sel = i == tab;
-            boolean hover = mx >= tx && mx < tx + tw && my >= ty && my < ty + th;
-            g.fill(tx, ty, tx + tw, ty + th, sel ? 0xFFE8DCC0 : (hover ? 0xD8C8A8 : 0xC4B294));
-            outline(g, tx, ty, tw, th, sel ? INK_TITLE : INK_MUTED);
-            g.drawString(font, labels[i], tx + tw / 2 - font.width(labels[i]) / 2, ty + 6,
-                    sel ? INK_TITLE : INK_MUTED);
+            int tx = px + 8, ty = py + 48 + i * 24, tw = 80, th = 20;
+            if (i == tab) g.fill(tx + 1, ty + 1, tx + tw - 1, ty + th - 1, 0x6675B548);
             rects.add(new int[]{tx, ty, tw, th, i});
         }
-        // aide colonne gauche
-        String[] aide = {"Tout se fait à la", "souris : plus besoin", "de commandes.", "",
-                "● vert = en ligne", "○ gris = hors ligne"};
-        for (int i = 0; i < aide.length; i++) {
-            g.drawString(font, aide[i], px + 10, py + 112 + i * 11, INK_FAINT);
-        }
+        rects.add(new int[]{px + 282, py + 204, 66, 17, 801});
+        rects.add(new int[]{px + 282, py + 204, 65, 17, 801});
 
-        int cx = px + 96, cy = py + 28, cw = 254, ch = 200;
+        int cx = px + 96, cy = py + 48, cw = 250, ch = 154;
         if (tab == 0) renderOnline(g, cx, cy, cw, ch, mx, my);
         else if (tab == 1) renderFriends(g, cx, cy, cw, ch, mx, my);
         else renderParty(g, cx, cy, cw, ch, mx, my);
-
-        String hint = "[Échap] Fermer";
-        g.drawString(font, hint, px + PW - 12 - font.width(hint), py + PH - 12, INK_FAINT);
+        // Le bouton Fermer et l'aide a gauche sont deja dessines dans la reference.
     }
-
     private void renderOnline(GuiGraphics g, int cx, int cy, int cw, int ch, int mx, int my) {
         List<SocialDataPacket.Plr> list = ClientSocial.online;
         if (list.isEmpty()) {
@@ -225,7 +214,7 @@ public class SocialScreen extends Screen {
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
         if (tab == 1) {
-            int fx = px + 96 + 44, fy = py + 28 + 4;
+            int fx = px + 96 + 44, fy = py + 48 + 4;
             if (mx >= fx && mx < fx + 118 && my >= fy && my < fy + 14) {
                 fieldFocus = true;
                 return true;
@@ -289,6 +278,7 @@ public class SocialScreen extends Screen {
     private void click(int id) {
         if (id >= 0 && id <= 2) { tab = id; return; }
         if (id == 800) { Minecraft.getInstance().setScreen(new GrimoireScreen()); return; }
+        if (id == 801) { onClose(); return; }
         if (id == 900) { pseudo = ""; return; }
         if (id == 70) {
             if (!pseudo.isEmpty()) act(0, pseudo);

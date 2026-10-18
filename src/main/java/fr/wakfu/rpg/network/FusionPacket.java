@@ -33,6 +33,39 @@ public class FusionPacket {
         ctx.get().enqueueWork(() -> {
             var player = ctx.get().getSender();
             if (player == null) return;
+            if (msg.index >= 100 && msg.index < 104) {
+                int slot = msg.index - 100;
+                int needed = 6;
+                List<ItemStack> items = player.getInventory().items;
+                for (ItemStack stack : items) {
+                    if (stack.is(fr.wakfu.rpg.registry.ModItems.WAKFU_INGOT.get()))
+                        needed -= Math.min(needed, stack.getCount());
+                    if (needed <= 0) break;
+                }
+                if (needed > 0) {
+                    player.displayClientMessage(Component.literal("§cIl faut 6 lingots de Wakfu pour forger cette pièce."), true);
+                    return;
+                }
+                needed = 6;
+                for (int i = 0; i < items.size() && needed > 0; i++) {
+                    ItemStack stack = items.get(i);
+                    if (stack.is(fr.wakfu.rpg.registry.ModItems.WAKFU_INGOT.get())) {
+                        int take = Math.min(needed, stack.getCount());
+                        stack.shrink(take);
+                        needed -= take;
+                        if (stack.isEmpty()) items.set(i, ItemStack.EMPTY);
+                    }
+                }
+                String[] slots = {"head", "chest", "legs", "feet"};
+                ItemStack out = fr.wakfu.rpg.item.WakfuArmorItem.makePiece(slots[slot], "commune", 1,
+                        net.minecraft.util.RandomSource.create());
+                String name = out.getHoverName().getString();
+                if (!player.getInventory().add(out)) player.drop(out, false);
+                player.playSound(net.minecraft.sounds.SoundEvents.SMITHING_TABLE_USE, 0.9f, 0.8f);
+                player.displayClientMessage(Component.literal("§aPièce forgée : " + name), true);
+                fr.wakfu.rpg.events.CommonEvents.sync(player);
+                return;
+            }
             List<Fusion.Group> groups = Fusion.groups(player);
             if (msg.index < 0 || msg.index >= groups.size()) return;
             Fusion.Group g = groups.get(msg.index);

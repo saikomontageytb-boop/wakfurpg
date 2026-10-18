@@ -1,0 +1,6 @@
+{
+    "textures":  {
+                     "layer0":  "wakfurpg:item/fantasy_eclipse_soldier_boots"
+                 },
+    "parent":  "item/generated"
+}

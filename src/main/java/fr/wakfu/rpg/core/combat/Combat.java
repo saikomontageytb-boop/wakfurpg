@@ -3,6 +3,7 @@ package fr.wakfu.rpg.core.combat;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -50,8 +51,11 @@ public class Combat {
     public final List<Integer> mobs = new ArrayList<>();
     /** Ids des monstres originaux paralleles a mobs (-1 = clone sans original). */
     public final List<Integer> mobOrigins = new ArrayList<>();
-    /** v0.27 : ids des vraies entites Alex Mobs (visuel). */
-    public final List<Integer> visualEntityIds = new ArrayList<>();
+    /** Recompenses reelles de ce combat, conservees au fil des monstres vaincus. */
+    public final List<String> defeatedMobNames = new ArrayList<>();
+    public final Map<UUID, Integer> earnedXp = new HashMap<>();
+    public final Map<UUID, Long> earnedKamas = new HashMap<>();
+    public final Map<UUID, List<ItemStack>> earnedLoot = new HashMap<>();
     /** Fenetre d'invitation : true jusqu'a la premiere action reelle. */
     public boolean joinable = true;
     /** Joueurs invites (pour revoquer la notif au verrouillage). */
@@ -64,6 +68,11 @@ public class Combat {
     public final Set<BlockPos> walls = new HashSet<>();
     /** Theme visuel (0 plaine, 1 foret, 2 montagne, 3 donjon). */
     public int theme = 0;
+    /** Non-empty for the three-wave dungeon encounter system. */
+    public String dungeonId = "";
+    public int dungeonWave = 0, dungeonMinLevel = 1, dungeonMaxLevel = 50;
+    public ServerLevel originLevel;
+    public int dungeonSpawnerId = -1;
 
     // v0.12 : combos + grace deplacement (par cote)
     public final int[] casts = new int[2];
@@ -76,8 +85,33 @@ public class Combat {
     // v0.14 : invocations par cote
     private final List<Integer> summonsA = new ArrayList<>();
     private final List<Integer> summonsB = new ArrayList<>();
-    // v0.18 : pieges {x, z, coteProprietaire, degats}
+    // Pieges serveur {x, z, coteProprietaire, degats, effet}.
     public final List<int[]> traps = new ArrayList<>();
+    public final Map<Integer, MovementPath> movementPaths = new HashMap<>();
+    public final Map<Integer, UnitEffects> effects = new HashMap<>();
+
+    public static final class MovementPath {
+        public final int side;
+        public final List<BlockPos> cells;
+        public int cursor;
+        public long nextStepTick;
+        public MovementPath(int side, List<BlockPos> cells, long nextStepTick) {
+            this.side = side; this.cells = cells; this.nextStepTick = nextStepTick;
+        }
+    }
+
+    public static final class UnitEffects {
+        public int shield;
+        public int armorTurns;
+        public int invulnerableUntilRound;
+        public int invulnerableReadyRound;
+        public int dotDamage;
+        public int dotTurns;
+        public int slowTurns;
+        public int apDownTurns;
+        public boolean slowThisTurn;
+        public boolean apDownThisTurn;
+    }
 
     // ------------------------------------------------------------ champs legac
     /** Premier mob (id entite copie) — compat HUD/adversaire principal. */

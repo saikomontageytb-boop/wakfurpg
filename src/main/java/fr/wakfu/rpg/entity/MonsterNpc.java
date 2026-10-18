@@ -17,8 +17,12 @@ import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -29,27 +33,35 @@ import net.minecraft.resources.ResourceLocation;
  */
 public class MonsterNpc extends PathfinderMob {
 
-    // v0.27 : types Alex's Mobs pour spawn aleatoire
-    private static final MonsterType[] ALEX_TYPES = {
-        MonsterType.GRIZZLY, MonsterType.GAZELLE, MonsterType.RATTLESNAKE,
-        MonsterType.ELEPHANT, MonsterType.GORILLA, MonsterType.FALCON,
-        MonsterType.KOMODO_DRAGON, MonsterType.MOOSE, MonsterType.TIGER, MonsterType.CROW
+    private static final EntityDataAccessor<String> DATA_MONSTER_TYPE =
+            SynchedEntityData.defineId(MonsterNpc.class, EntityDataSerializers.STRING);
+    private static final EntityDataAccessor<String> DATA_VARIANT =
+            SynchedEntityData.defineId(MonsterNpc.class, EntityDataSerializers.STRING);
+
+    private static final MonsterType[] WAKFU_TYPES = {
+        MonsterType.ROOT_WARDEN, MonsterType.ASH_SCOUT, MonsterType.TOXIC_MOMIC,
+        MonsterType.SIEGE_GOLEM, MonsterType.HEAVY_WARRIOR, MonsterType.BONE_ARCHER,
+        MonsterType.FOREST_SENTINEL, MonsterType.ROAD_BRIGAND, MonsterType.ROAD_ASSASSIN,
+        MonsterType.MECHANICAL_DOLL
     };
-    // v0.27 : visual map for Alex Mobs rendering
-    private static final java.util.Map<String, String> ALEX_VISUAL_MAP = new java.util.HashMap<>();
-    static {
-        ALEX_VISUAL_MAP.put("grizzly", "alexsmobs:grizzly_bear");
-        ALEX_VISUAL_MAP.put("gazelle", "alexsmobs:gazelle");
-        ALEX_VISUAL_MAP.put("rattlesnake", "alexsmobs:rattlesnake");
-        ALEX_VISUAL_MAP.put("elephant", "alexsmobs:elephant");
-        ALEX_VISUAL_MAP.put("gorilla", "alexsmobs:gorilla");
-        ALEX_VISUAL_MAP.put("falcon", "alexsmobs:roadrunner");
-        ALEX_VISUAL_MAP.put("komodo_dragon", "alexsmobs:komodo_dragon");
-        ALEX_VISUAL_MAP.put("moose", "alexsmobs:moose");
-        ALEX_VISUAL_MAP.put("tiger", "alexsmobs:tiger");
-        ALEX_VISUAL_MAP.put("crow", "alexsmobs:crow");
+    // Le combat reste gere par MonsterNpc, mais le rendu utilise les modeles 3D natifs d'Alex's Mobs.
+    private static String alexModelFor(MonsterType type) {
+        return switch (type) {
+            case ROOT_WARDEN -> "alexsmobs:grizzly_bear";
+            case ASH_SCOUT -> "alexsmobs:gazelle";
+            case TOXIC_MOMIC -> "alexsmobs:rattlesnake";
+            case SIEGE_GOLEM -> "alexsmobs:elephant";
+            case HEAVY_WARRIOR -> "alexsmobs:gorilla";
+            case BONE_ARCHER -> "alexsmobs:roadrunner";
+            case FOREST_SENTINEL -> "alexsmobs:moose";
+            case ROAD_BRIGAND -> "alexsmobs:tiger";
+            case ROAD_ASSASSIN -> "alexsmobs:komodo_dragon";
+            case MECHANICAL_DOLL -> "alexsmobs:crow";
+            case BOSS -> "alexsmobs:gorilla";
+            default -> null;
+        };
     }
-    private int visualEntityId = -1;
+
     private MonsterType type = MonsterType.ZOMBIE;
     private String variant = "";              // v0.23 : "" = apparence de base
     private int currentHp;
@@ -66,6 +78,13 @@ public class MonsterNpc extends PathfinderMob {
         this.currentHp = this.type.maxHp;
     }
 
+    @Override
+    protected void defineSynchedData() {
+        super.defineSynchedData();
+        entityData.define(DATA_MONSTER_TYPE, MonsterType.ZOMBIE.getId());
+        entityData.define(DATA_VARIANT, "");
+    }
+
     /** v0.25 : œuf de spawn → monstre de zone initialisé, avec foyer d'errance. */
     @Override
     public net.minecraft.world.entity.SpawnGroupData finalizeSpawn(
@@ -76,15 +95,14 @@ public class MonsterNpc extends PathfinderMob {
             net.minecraft.nbt.CompoundTag tag) {
         if (mtype == net.minecraft.world.entity.MobSpawnType.SPAWN_EGG
                 || mtype == net.minecraft.world.entity.MobSpawnType.COMMAND) {
-            // v0.27 : spawn aleatoire parmi les Alex's Mobs
+            // Monstre du bestiaire Wakfu, rendu par le modele du mod.
             MonsterType pick = this.type;
             if (pick == null || pick == MonsterType.ZOMBIE) {
-                pick = ALEX_TYPES[getRandom().nextInt(ALEX_TYPES.length)];
+                pick = WAKFU_TYPES[getRandom().nextInt(WAKFU_TYPES.length)];
             }
             init(pick, 1 + getRandom().nextInt(3), "");
             addTag("manual");
             if (!hasHome) setHome(getX(), getY(), getZ());
-            spawnVisual();
         }
         return super.finalizeSpawn(acc, diff, mtype, data, tag);
     }
@@ -99,7 +117,10 @@ public class MonsterNpc extends PathfinderMob {
 
     public void init(MonsterType t, int lvl, String variant) {
         this.type = t;
+        entityData.set(DATA_MONSTER_TYPE, t.getId());
+        setInvisible(false);
         this.variant = variant == null ? "" : variant;
+        entityData.set(DATA_VARIANT, this.variant);
         this.level = Math.max(1, Math.min(50, lvl));
         this.currentHp = maxHpFor();
         refreshName();
@@ -118,12 +139,18 @@ public class MonsterNpc extends PathfinderMob {
     }
 
     public String getTexturePath() {
-        MobVariants.Variant v = MobVariants.get(type.getId(), variant);
+        MonsterType visualType = getMonsterType();
+        String visualVariant = level().isClientSide ? entityData.get(DATA_VARIANT) : variant;
+        MobVariants.Variant v = MobVariants.get(visualType.getId(), visualVariant);
         if (v != null && v.texture != null) return v.texture;
-        return type.texture;
+        return visualType.texture;
     }
 
     public MonsterType getMonsterType() {
+        if (level().isClientSide) {
+            MonsterType synced = MonsterType.byId(entityData.get(DATA_MONSTER_TYPE));
+            if (synced != null) return synced;
+        }
         return type;
     }
 
@@ -185,6 +212,60 @@ public class MonsterNpc extends PathfinderMob {
         this.discard();
     }
 
+    private transient int visualEntityId = -1;
+
+    private void spawnOrSyncAlexModel() {
+        if (level().isClientSide || alexModelFor(type) == null) return;
+        String parentTag = "wakfurpg_model_of_" + getUUID();
+        Entity visual = visualEntityId < 0 ? null : level().getEntity(visualEntityId);
+        if (visual == null) {
+            java.util.List<Entity> found = level().getEntitiesOfClass(Entity.class,
+                    getBoundingBox().inflate(4.0D), e -> e.getTags().contains(parentTag));
+            if (!found.isEmpty()) visual = found.get(0);
+        }
+        if (visual == null) {
+            EntityType<?> modelType = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation(alexModelFor(type)));
+            if (modelType == null) return;
+            visual = modelType.create(level());
+            if (visual == null) return;
+            visual.addTag("wakfurpg_alex_model");
+            visual.addTag(parentTag);
+            if (getTags().contains("wakfurpg_spawner_managed")) visual.addTag("wakfurpg_spawner_managed");
+            visual.setInvulnerable(true);
+            visual.setNoGravity(true);
+            visual.setSilent(true);
+            if (visual instanceof Mob mob) {
+                mob.setNoAi(true);
+                mob.setPersistenceRequired();
+                if (getCustomName() != null) mob.setCustomName(getCustomName());
+                mob.setCustomNameVisible(isCustomNameVisible());
+            }
+            level().addFreshEntity(visual);
+            visualEntityId = visual.getId();
+            setInvisible(true);
+        }
+        if (getTags().contains("wakfurpg_spawner_managed")) visual.addTag("wakfurpg_spawner_managed");
+        visual.moveTo(getX(), getY(), getZ(), getYRot(), getXRot());
+        visual.setYBodyRot(getYRot());
+        visual.setYHeadRot(getYHeadRot());
+        visualEntityId = visual.getId();
+    }
+
+    private void discardVisual() {
+        Entity visual = visualEntityId < 0 ? null : level().getEntity(visualEntityId);
+        if (visual != null) visual.discard();
+        String parentTag = "wakfurpg_model_of_" + getUUID();
+        for (Entity orphan : level().getEntitiesOfClass(Entity.class,
+                getBoundingBox().inflate(4.0D), e -> e.getTags().contains(parentTag))) orphan.discard();
+        visualEntityId = -1;
+    }
+
+    /** Remove the display proxy together with an old world spawn during migration. */
+    public void discardWithVisual() {
+        discardVisual();
+        discard();
+    }
+
     // ---------------------------------------------------------------- IA
     /** Errance douce : uniquement pour les monstres de terrain (pas les
      *  invocations ni les copies d'arène qui n'ont pas de territoire). */
@@ -207,55 +288,11 @@ public class MonsterNpc extends PathfinderMob {
     }
 
 
-    /** v0.27 : spawn Alex's Mobs entity for visual rendering. */
-    public void spawnVisual() {
-        if (level().isClientSide || visualEntityId >= 0) return;
-        String alexId = ALEX_VISUAL_MAP.get(type.getId());
-        if (alexId == null) return;
-        EntityType<?> et = ForgeRegistries.ENTITY_TYPES.getValue(
-            new net.minecraft.resources.ResourceLocation(alexId));
-        if (et == null) return;
-        Entity visual = et.create(level());
-        if (visual == null) return;
-        visual.moveTo(getX(), getY(), getZ(), getYRot(), getXRot());
-        visual.setInvulnerable(true);
-        if (visual instanceof net.minecraft.world.entity.Mob mob) {
-            mob.setNoAi(true);
-            mob.setPersistenceRequired();
-        }
-        visual.addTag("alex_visual");
-        visual.addTag("visual_of_" + getId());
-        level().addFreshEntity(visual);
-        visualEntityId = visual.getId();
-        setInvisible(true);
-    }
-
-    /** v0.27 : sync visual entity position. */
-    public void syncVisual() {
-        if (level().isClientSide || visualEntityId < 0) return;
-        Entity visual = level().getEntity(visualEntityId);
-        if (visual != null && isAlive()) {
-            visual.moveTo(getX(), getY(), getZ(), getYRot(), getXRot());
-            visual.setInvulnerable(true);
-        } else if (visual != null) {
-            visual.discard();
-            visualEntityId = -1;
-        }
-    }
-
-    public void discardVisual() {
-        if (visualEntityId < 0) return;
-        Entity visual = level().getEntity(visualEntityId);
-        if (visual != null) visual.discard();
-        visualEntityId = -1;
-    }
-
     @Override
     public void aiStep() {
         super.aiStep();
         if (level().isClientSide) return;
-        // v0.27 : sync visual entity
-        syncVisual();
+        spawnOrSyncAlexModel();
         if (!hasHome || isSummon()) return;
         // reste dans sa zone : au-delà de 28 blocs du foyer, on rentre
         double dx = getX() - homeX, dz = getZ() - homeZ;
@@ -294,7 +331,6 @@ public class MonsterNpc extends PathfinderMob {
         tag.putString("mtype", type.getId());
         tag.putString("mvariant", variant);
         tag.putInt("mhp", currentHp);
-        tag.putInt("visualId", visualEntityId);
         tag.putInt("mlevel", level);
         tag.putBoolean("mhome", hasHome);
         if (hasHome) {
@@ -307,16 +343,19 @@ public class MonsterNpc extends PathfinderMob {
     @Override
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
+        setInvisible(false);
         MonsterType t = MonsterType.byId(tag.getString("mtype"));
-        // v0.27 : ancien ZOMBIE -> random Alex's Mobs
+        // Types de sauvegarde inconnus : conversion vers un monstre du nouveau bestiaire.
         if (t == null || (t == MonsterType.ZOMBIE && tag.getString("mtype").isEmpty())) {
-            t = ALEX_TYPES[getRandom().nextInt(ALEX_TYPES.length)];
+            t = WAKFU_TYPES[getRandom().nextInt(WAKFU_TYPES.length)];
         }
         this.type = t;
+        entityData.set(DATA_MONSTER_TYPE, t.getId());
         this.variant = tag.getString("mvariant");
+        entityData.set(DATA_VARIANT, this.variant);
+        this.visualEntityId = -1;
         this.level = Math.max(1, tag.getInt("mlevel"));
         this.currentHp = tag.getInt("mhp");
-        this.visualEntityId = tag.getInt("visualId");
         if (this.currentHp <= 0) this.currentHp = maxHpFor();
         this.hasHome = tag.getBoolean("mhome");
         if (hasHome) {

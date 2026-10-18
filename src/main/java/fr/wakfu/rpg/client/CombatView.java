@@ -116,6 +116,7 @@ public class CombatView {
             // v0.12 fix frappe infinie : jamais d'attaque/interaction vanilla en combat
             if (mc.options.keyAttack.isDown()) mc.options.keyAttack.setDown(false);
             if (mc.options.keyUse.isDown()) mc.options.keyUse.setDown(false);
+            if (mc.options.keyJump.isDown()) mc.options.keyJump.setDown(false);
             // v0.12 : deplacements animes (interpolation des changements de case)
             CombatLerp.tick();
             // (re)attacher la camera vue de haut — gere aussi le changement de dimension
@@ -149,7 +150,14 @@ public class CombatView {
     @SubscribeEvent
     public static void onLogin(ClientPlayerNetworkEvent.LoggingIn e) {
         ClientCombatHud.reset();
-        fr.wakfu.rpg.network.Network.sendToServer(new fr.wakfu.rpg.network.ClientHelloPacket("0.26.1"));
+        fr.wakfu.rpg.network.Network.sendToServer(
+                new fr.wakfu.rpg.network.ClientHelloPacket(clientVersion()));
+    }
+
+    private static String clientVersion() {
+        return net.minecraftforge.fml.ModList.get().getModContainerById(fr.wakfu.rpg.WakfuRPG.MODID)
+                .map(container -> container.getModInfo().getVersion().toString())
+                .orElse("unknown");
     }
 
     /** Diagnostic visible DANS le menu pause (captures utilisateur toujours en pause). */
@@ -163,7 +171,7 @@ public class CombatView {
         int chunks = mc.level == null ? -1 : mc.level.getChunkSource().getLoadedChunksCount();
         boolean ent = mc.level != null && st.cameraId > 0 && mc.level.getEntity(st.cameraId) != null;
         var g = e.getGuiGraphics();
-        g.drawString(mc.font, "§ewakfurpg client 0.26.1", 4, 4, 0xFFFF55);
+        g.drawString(mc.font, "§ewakfurpg client " + clientVersion(), 4, 4, 0xFFFF55);
         String sol = "?";
         if (mc.level != null && st.inCombat) {
             sol = mc.level.getBlockState(new net.minecraft.core.BlockPos(st.baseX + st.size / 2, st.floorY - 1, st.baseZ + st.size / 2))
@@ -381,10 +389,18 @@ public class CombatView {
                     st.floorY + 0.030, u[0] == 0 ? 0xCC55CCFF : 0xCC55FF66);
         }
 
-        // v0.18 : pieges (vert = les miens, rouge = ennemis)
+        // Les pieges sont colores selon leur effet, avec la propriete en fallback.
         for (int[] t : st.traps) {
             BlockPos tc = new BlockPos(t[0], st.floorY, t[1]);
-            outline(bb, m, tc, st.floorY + 0.026, t[2] == 0 ? 0xAA33FF66 : 0xAAFF3333);
+            int color = switch (t.length > 3 ? t[3] : 0) {
+                case 1 -> 0xAA55CCFF;
+                case 2 -> 0xAAFFCC33;
+                case 3 -> 0xAADD66FF;
+                default -> t[2] == 0 ? 0xAA33FF66 : 0xAAFF3333;
+            };
+            quad(bb, m, tc.getX() + 0.08, tc.getZ() + 0.08, tc.getX() + 0.92, tc.getZ() + 0.92,
+                    st.floorY + 0.025, color);
+            outline(bb, m, tc, st.floorY + 0.026, color | 0x55000000);
         }
 
         // v0.14 : marqueurs des invocations (cyan = miennes, orange = adverses)
@@ -606,9 +622,7 @@ public class CombatView {
         } else if (k == GLFW.GLFW_KEY_ESCAPE && selectedSlot >= 0) {
             selectedSlot = -1;
         } else if (k == GLFW.GLFW_KEY_SPACE) {
-            // v0.27 : spacebar = reset zoom
-            fr.wakfu.rpg.network.Network.sendToServer(
-                new fr.wakfu.rpg.network.ZoomPacket(0));
+            Network.sendToServer(new ActionPacket(ActionPacket.END, "", 0, 0));
         }
     }
 
@@ -620,4 +634,3 @@ public class CombatView {
         }
     }
 }
-

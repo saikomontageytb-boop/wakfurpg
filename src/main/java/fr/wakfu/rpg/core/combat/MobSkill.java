@@ -10,7 +10,7 @@ import net.minecraft.sounds.SoundSource;
 import java.util.*;
 
 /**
- * v0.27 : Capacites uniques par type de monstre (Alex's Mobs).
+ * Capacites uniques des archetypes du bestiaire Wakfu.
  * Chaque monstre a 1-2 competences speciales qui se declenchent
  * aleatoirement pendant la phase des monstres, avec un cooldown.
  */
@@ -78,55 +78,55 @@ public class MobSkill {
     private static final Map<MonsterType, List<MobSkill>> SKILLS = new HashMap<>();
 
     static {
-        // --- GRIZZLY (Ours) : Maul + Regeneration ---
-        register(MonsterType.GRIZZLY,
-            new MobSkill("maul", "Maulure", "Griffe devastatrice qui saigne", SkillType.DAMAGE, 3, 1, 1),
-            new MobSkill("bear_regen", "Regeneration", "L\'ours recupere des PV", SkillType.HEAL, 5, 0, 0)
+        // --- Gardien des racines : frappe tellurique + sève vive ---
+        register(MonsterType.ROOT_WARDEN,
+            new MobSkill("root_slam", "Frappe tellurique", "Frappe dévastatrice", SkillType.DAMAGE, 3, 1, 1),
+            new MobSkill("root_regen", "Sève vive", "Le gardien récupère des PV", SkillType.HEAL, 5, 0, 0)
         );
-        // --- GAZELLE : Sprint + Esquive ---
-        register(MonsterType.GAZELLE,
-            new MobSkill("sprint", "Sprint", "Deplacement rapide + attaque furtive", SkillType.MOVE, 3, 0, 0),
-            new MobSkill("dodge", "Esquive", "Evite la prochaine attaque", SkillType.BUFF, 4, 0, 0)
+        // --- Éclaireur des cendres : ruée + fumigène ---
+        register(MonsterType.ASH_SCOUT,
+            new MobSkill("ash_dash", "Ruée", "Déplacement rapide et attaque furtive", SkillType.MOVE, 3, 0, 0),
+            new MobSkill("smoke", "Fumigène", "Se dissimule dans la cendre", SkillType.BUFF, 4, 0, 0)
         );
-        // --- RATTLESNAKE (Serpent) : Venin + Enroulement ---
-        register(MonsterType.RATTLESNAKE,
+        // --- Momic venimeux : venin + enroulement ---
+        register(MonsterType.TOXIC_MOMIC,
             new MobSkill("venom", "Morsure venimeuse", "Poison qui inflige des degats sur 3 tours", SkillType.DEBUFF, 4, 1, 2),
             new MobSkill("coil", "Enroulement", "Se protege et regenere", SkillType.HEAL, 5, 0, 0)
         );
-        // --- ELEPHANT : Stomp + Charge ---
-        register(MonsterType.ELEPHANT,
+        // --- Golem de siège : piétinement + charge ---
+        register(MonsterType.SIEGE_GOLEM,
             new MobSkill("stomp", "Pietinement", "Ecrase toutes les cases adjacentes", SkillType.AOE, 4, 0, 0),
             new MobSkill("charge", "Charge", "Fonce sur la cible et la repousse", SkillType.DAMAGE, 3, 2, 5)
         );
-        // --- GORILLA : Lancer de rocher + Rage ---
-        register(MonsterType.GORILLA,
+        // --- Guerrier lourd : jet de pierre + frénésie ---
+        register(MonsterType.HEAVY_WARRIOR,
             new MobSkill("boulder_throw", "Lancer de rocher", "Lance un rocher a distance", SkillType.DAMAGE, 3, 2, 6),
-            new MobSkill("rage", "Rage du gorille", "Augmente les degats pendant 2 tours", SkillType.BUFF, 5, 0, 0)
+            new MobSkill("rage", "Frénésie", "Augmente les dégâts pendant 2 tours", SkillType.BUFF, 5, 0, 0)
         );
-        // --- FALCON (Faucon) : Plongeon + Cri ---
-        register(MonsterType.FALCON,
+        // --- Archer des os : tir tendu + cri ---
+        register(MonsterType.BONE_ARCHER,
             new MobSkill("dive", "Plongeon", "Attaque depuis les airs", SkillType.DAMAGE, 2, 1, 8),
             new MobSkill("screech", "Cri perçant", "Reduit la precision du joueur", SkillType.DEBUFF, 4, 0, 6)
         );
-        // --- KOMODO_DRAGON : Morsure toxique + Salive ---
-        register(MonsterType.KOMODO_DRAGON,
+        // --- Sentinelle forestière : ronces + épines ---
+        register(MonsterType.FOREST_SENTINEL,
             new MobSkill("toxic_bite", "Morsure toxique", "Inflige poison et reduit les PM", SkillType.DEBUFF, 3, 1, 1),
             new MobSkill("sepsis", "Septicemie", "Degats supplementaires si deja empoisonne", SkillType.DAMAGE, 4, 1, 2)
         );
-        // --- MOOSE (Orignal) : Charge + Cabrage ---
-        register(MonsterType.MOOSE,
-            new MobSkill("moose_charge", "Charge massive", "Fonce sur la cible", SkillType.DAMAGE, 3, 2, 5),
-            new MobSkill("rear_up", "Cabragement", "Repousse tous les ennemis proches", SkillType.AOE, 4, 0, 2)
+        // --- Brigand du grand chemin : charge + coup de crosse ---
+        register(MonsterType.ROAD_BRIGAND,
+            new MobSkill("brigand_charge", "Charge massive", "Fonce sur la cible", SkillType.DAMAGE, 3, 2, 5),
+            new MobSkill("rear_up", "Coup de crosse", "Repousse tous les ennemis proches", SkillType.AOE, 4, 0, 2)
         );
-        // --- TIGER : Bond + Griffe ---
-        register(MonsterType.TIGER,
+        // --- Assassin du grand chemin : bond + lame cachée ---
+        register(MonsterType.ROAD_ASSASSIN,
             new MobSkill("pounce", "Bond", "Saute sur la cible eloignee", SkillType.MOVE, 3, 3, 8),
-            new MobSkill("claw_slash", "Griffe feroce", "Attaque critique avec bonus de degats", SkillType.DAMAGE, 2, 1, 1)
+            new MobSkill("hidden_blade", "Lame cachée", "Attaque critique avec bonus de dégâts", SkillType.DAMAGE, 2, 1, 1)
         );
-        // --- CROW (Corbeau) : Vol de PV + Essaim ---
-        register(MonsterType.CROW,
+        // --- Poupée mécanique : drain + rafale ---
+        register(MonsterType.MECHANICAL_DOLL,
             new MobSkill("life_steal", "Vol de vie", "Draine les PV du joueur", SkillType.DAMAGE, 3, 1, 4),
-            new MobSkill("swarm", "Essaim", "Attaque multiple rapide", SkillType.AOE, 4, 0, 3)
+            new MobSkill("burst", "Rafale", "Enchaîne plusieurs frappes", SkillType.AOE, 4, 0, 3)
         );
         // --- MOMIC (existant) : Morsure + Hurlement ---
         register(MonsterType.ZOMBIE,

@@ -12,6 +12,8 @@ import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class ModItems {
     public static final DeferredRegister<Item> ITEMS =
@@ -19,7 +21,76 @@ public class ModItems {
 
     // Core items
     public static final RegistryObject<Item> WAKFU_ARMOR = ITEMS.register("wakfu_armor",
-            () -> new WakfuArmorItem(new Item.Properties().stacksTo(1)));
+            () -> new WakfuArmorItem(net.minecraft.world.item.ArmorItem.Type.HELMET, new Item.Properties(), "dragonslayer"));
+    public static final RegistryObject<Item> WAKFU_ARMOR_CHEST = ITEMS.register("wakfu_armor_chest",
+            () -> new WakfuArmorItem(net.minecraft.world.item.ArmorItem.Type.CHESTPLATE, new Item.Properties(), "eclipse_soldier"));
+    public static final RegistryObject<Item> WAKFU_ARMOR_LEGS = ITEMS.register("wakfu_armor_legs",
+            () -> new WakfuArmorItem(net.minecraft.world.item.ArmorItem.Type.LEGGINGS, new Item.Properties(), "thief"));
+    public static final RegistryObject<Item> WAKFU_ARMOR_FEET = ITEMS.register("wakfu_armor_feet",
+            () -> new WakfuArmorItem(net.minecraft.world.item.ArmorItem.Type.BOOTS, new Item.Properties(), "golden_horns"));
+
+    // Each fantasy panoply has its own renderable item variants. The old IDs remain
+    // registered so existing player inventories and world saves continue to load.
+    private static final Map<String, Map<String, RegistryObject<Item>>> FANTASY_ARMOR = new LinkedHashMap<>();
+    static {
+        registerFantasySet("fantasy_dragonslayer", "dragonslayer");
+        registerFantasySet("fantasy_eclipse", "eclipse_soldier");
+        registerFantasySet("fantasy_golden_horns", "golden_horns");
+        registerFantasySet("fantasy_hero", "hero");
+        registerFantasySet("fantasy_thief", "thief");
+    }
+
+    private static void registerFantasySet(String set, String model) {
+        Map<String, RegistryObject<Item>> parts = new LinkedHashMap<>();
+        registerFantasyPart(parts, set, model, "head", net.minecraft.world.item.ArmorItem.Type.HELMET);
+        registerFantasyPart(parts, set, model, "chest", net.minecraft.world.item.ArmorItem.Type.CHESTPLATE);
+        registerFantasyPart(parts, set, model, "legs", net.minecraft.world.item.ArmorItem.Type.LEGGINGS);
+        registerFantasyPart(parts, set, model, "feet", net.minecraft.world.item.ArmorItem.Type.BOOTS);
+        FANTASY_ARMOR.put(set, parts);
+    }
+
+    private static void registerFantasyPart(Map<String, RegistryObject<Item>> parts, String set, String model,
+                                             String slot, net.minecraft.world.item.ArmorItem.Type type) {
+        parts.put(slot, ITEMS.register("wakfu_armor_" + set + "_" + slot,
+                () -> new WakfuArmorItem(type, new Item.Properties(), model)));
+    }
+
+    public static Item fantasyArmorItem(String set, String slot) {
+        Map<String, RegistryObject<Item>> parts = FANTASY_ARMOR.get(set);
+        RegistryObject<Item> item = parts == null ? null : parts.get(slot);
+        if (item == null) throw new IllegalArgumentException("Invalid Fantasy armor variant: " + set + "/" + slot);
+        return item.get();
+    }
+
+    private static final Map<String, Map<String, RegistryObject<Item>>> ZONE_SET_ARMOR = new LinkedHashMap<>();
+    static {
+        registerZoneSet("plaine", "hero");
+        registerZoneSet("os", "eclipse_soldier");
+        registerZoneSet("chemin", "thief");
+        registerZoneSet("chef", "dragonslayer");
+    }
+
+    private static void registerZoneSet(String set, String model) {
+        Map<String, RegistryObject<Item>> parts = new LinkedHashMap<>();
+        registerZonePart(parts, set, model, "head", net.minecraft.world.item.ArmorItem.Type.HELMET);
+        registerZonePart(parts, set, model, "chest", net.minecraft.world.item.ArmorItem.Type.CHESTPLATE);
+        registerZonePart(parts, set, model, "legs", net.minecraft.world.item.ArmorItem.Type.LEGGINGS);
+        registerZonePart(parts, set, model, "feet", net.minecraft.world.item.ArmorItem.Type.BOOTS);
+        ZONE_SET_ARMOR.put(set, parts);
+    }
+
+    private static void registerZonePart(Map<String, RegistryObject<Item>> parts, String set, String model,
+                                         String slot, net.minecraft.world.item.ArmorItem.Type type) {
+        parts.put(slot, ITEMS.register("wakfu_armor_set_" + set + "_" + slot,
+                () -> new WakfuArmorItem(type, new Item.Properties(), model)));
+    }
+
+    public static Item zoneSetArmorItem(String set, String slot) {
+        Map<String, RegistryObject<Item>> parts = ZONE_SET_ARMOR.get(set);
+        RegistryObject<Item> item = parts == null ? null : parts.get(slot);
+        if (item == null) throw new IllegalArgumentException("Invalid zone armor variant: " + set + "/" + slot);
+        return item.get();
+    }
     public static final RegistryObject<Item> WAKFU_WEAPON = ITEMS.register("wakfu_weapon",
             () -> new WakfuWeaponItem(new Item.Properties().stacksTo(1), "sword"));
     public static final RegistryObject<Item> WAKFU_GEAR = ITEMS.register("wakfu_gear",
@@ -63,6 +134,8 @@ public class ModItems {
             () -> new ForgeSpawnEggItem(ModEntities.MERCHANT, 0x8A5A2A, 0xFFDD99, new Item.Properties()));
     public static final RegistryObject<Item> EGG_MARKET = ITEMS.register("egg_market",
             () -> new ForgeSpawnEggItem(ModEntities.MARKET, 0x2A5A8A, 0xFFDD55, new Item.Properties()));
+    public static final RegistryObject<Item> EGG_SAILOR = ITEMS.register("egg_sailor",
+            () -> new ForgeSpawnEggItem(ModEntities.SAILOR, 0x254C73, 0xE9D6A5, new Item.Properties()));
     public static final RegistryObject<Item> EGG_MONSTER = ITEMS.register("egg_monster",
             () -> new ForgeSpawnEggItem(ModEntities.MONSTER, 0x4A6B2A, 0x99AA55, new Item.Properties()));
 

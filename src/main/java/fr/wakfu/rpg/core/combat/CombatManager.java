@@ -22,9 +22,6 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.Mob;
-import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
@@ -48,23 +45,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * l'arene (ses PV sont reportes, puis recopies a la fin).
  */
 public class CombatManager {
-    // v0.27 : map MonsterType -> alexsmobs entity registry name
-    private static final java.util.Map<MonsterType, String> ALEX_ENTITY_MAP = new java.util.HashMap<>();
-    static {
-        ALEX_ENTITY_MAP.put(MonsterType.GRIZZLY, "alexsmobs:grizzly_bear");
-        ALEX_ENTITY_MAP.put(MonsterType.GAZELLE, "alexsmobs:gazelle");
-        ALEX_ENTITY_MAP.put(MonsterType.RATTLESNAKE, "alexsmobs:rattlesnake");
-        ALEX_ENTITY_MAP.put(MonsterType.ELEPHANT, "alexsmobs:elephant");
-        ALEX_ENTITY_MAP.put(MonsterType.GORILLA, "alexsmobs:gorilla");
-        ALEX_ENTITY_MAP.put(MonsterType.FALCON, "alexsmobs:roadrunner");
-        ALEX_ENTITY_MAP.put(MonsterType.KOMODO_DRAGON, "alexsmobs:komodo_dragon");
-        ALEX_ENTITY_MAP.put(MonsterType.MOOSE, "alexsmobs:moose");
-        ALEX_ENTITY_MAP.put(MonsterType.TIGER, "alexsmobs:tiger");
-        ALEX_ENTITY_MAP.put(MonsterType.CROW, "alexsmobs:crow");
-    }
-
-
-
     /** v0.27 : get combat by player UUID. */
     public static Combat getCombat(UUID playerId) { return COMBATS.get(playerId); }
 
@@ -121,20 +101,41 @@ public class CombatManager {
                     player.blockPosition().getX(), player.blockPosition().getZ());
             Combat combat = buildCombat(player, null, slot, theme);
             if (combat == null) return;
+            combat.originLevel = player.serverLevel();
             fr.wakfu.rpg.core.PartyManager.Party party =
                     fr.wakfu.rpg.core.PartyManager.partyOf(player.getUUID());
             int partySize = party == null ? 1 : party.members.size();
 
             // v0.19 : les allies proches (10 blocs) sont affrontes TOUS EN MEME TEMPS
             java.util.List<MonsterNpc> grp = new java.util.ArrayList<>();
+            String dungeonTag = monster.getTags().stream().filter(t -> t.startsWith("dungeon_encounter_"))
+                    .findFirst().orElse(null);
+            if (dungeonTag != null) {
+                combat.dungeonId = dungeonTag.substring("dungeon_encounter_".length());
+                fr.wakfu.rpg.core.DungeonRegistry.Gate gate = fr.wakfu.rpg.core.DungeonRegistry
+                        .get(player.getServer()).get(combat.dungeonId);
+                if (gate != null) {
+                    combat.dungeonMinLevel = gate.minLevel;
+                    combat.dungeonMaxLevel = gate.maxLevel;
+                }
+                combat.dungeonWave = 1;
+                ArmorStand core = new ArmorStand(combat.level,
+                        combat.baseX + combat.size / 2.0, combat.floorY + 0.2,
+                        combat.baseZ + combat.size / 2.0);
+                core.setInvisible(true); core.setNoGravity(true); core.setInvulnerable(true);
+                core.setCustomName(Component.literal("§d✦ Cœur d'invocation · Vague 1/3 ✦"));
+                core.setCustomNameVisible(true); core.addTag("wakfurpg_dungeon_spawner");
+                combat.level.addFreshEntity(core); combat.dungeonSpawnerId = core.getId();
+            }
             grp.add(monster);
             for (MonsterNpc other : monster.level().getEntitiesOfClass(MonsterNpc.class,
                     new AABB(monster.blockPosition()).inflate(10))) {
                 if (other == monster || other.getTags().contains("arena_copy")) continue;
+                if (dungeonTag != null && !other.getTags().contains(dungeonTag)) continue;
                 if (monsterIsBusy(other) || grp.size() >= 6) continue;
                 grp.add(other);
             }
-            int target = partySize >= 2
+            int target = dungeonTag != null ? grp.size() : partySize >= 2
                     ? Math.min(6, partySize + 1)
                     : Math.min(2, Math.max(1, grp.size()));
             spawnMobs(combat, grp, target, partySize >= 2);
@@ -161,6 +162,28 @@ public class CombatManager {
             }
         }
         return false;
+    }
+
+    private static boolean stepMonster(Combat combat, MonsterNpc mob, int side, BlockPos cell) {
+        mob.teleportTo(cell.getX() + 0.5, combat.floorY, cell.getZ() + 0.5);
+        int[] trap = takeTrap(combat, side, cell);
+        if (trap == null) return false;
+        mob.hurtCombat(trap[3]);
+        sendDamagePopup(combat, mob, trap[3]);
+        applyTrapEffect(combat, mob, trap);
+        combat.level.playSound(null, cell, SoundEvents.GENERIC_EXPLODE, SoundSource.HOSTILE, 0.7f, 1.2f);
+        sendFxId(combat, "trap_trigger", cell, List.of(cell));
+        broadcast(combat, "§e" + mob.getName().getString() + " déclenche un piège (§c-" + trap[3] + "§e) !");
+        if (mob.getCurrentHp() > 0) return false;
+        if (mob.isSummon()) {
+            combat.summonsOf(side).remove((Integer) mob.getId());
+            mob.discard();
+        } else {
+            ServerPlayer winner = activePlayer(combat);
+            if (winner != null) mobDefeated(winner, mob, combat);
+        }
+        sendStateAll(combat);
+        return true;
     }
 
     /** v0.19 : spawn PLUSIEURS copies de monstres en meme temps (cote B).
@@ -201,33 +224,9 @@ public class CombatManager {
                 cell = new BlockPos(combat.baseX + size - 3, combat.floorY, combat.baseZ + size / 2);
             }
             copy.moveTo(cell.getX() + 0.5, combat.floorY, cell.getZ() + 0.5, 0, 0);
-            copy.setInvisible(true);
             combat.level.addFreshEntity(copy);
             combat.mobs.add(copy.getId());
 
-            // v0.27 : spawn real Alex's Mobs entity as visual
-            int visualId = -1;
-            String alexId = ALEX_ENTITY_MAP.get(copy.getMonsterType());
-            if (alexId != null) {
-                EntityType<?> alexType = ForgeRegistries.ENTITY_TYPES.getValue(
-                    new net.minecraft.resources.ResourceLocation(alexId));
-                if (alexType != null) {
-                    Entity visual = alexType.create(combat.level);
-                    if (visual != null) {
-                        visual.moveTo(cell.getX() + 0.5, combat.floorY, cell.getZ() + 0.5, 0, 0);
-                        visual.setInvulnerable(true);
-                        visual.setNoGravity(true);
-                        if (visual instanceof Mob mob) {
-                            mob.setNoAi(true);
-                            mob.setPersistenceRequired();
-                        }
-                        visual.addTag("alex_visual");
-                        combat.level.addFreshEntity(visual);
-                        visualId = visual.getId();
-                    }
-                }
-            }
-            combat.visualEntityIds.add(visualId);
             combat.mobOrigins.add(origIds.get(i));
         }
         combat.monsterId = combat.mobs.isEmpty() ? -1 : combat.mobs.get(0);
@@ -490,6 +489,10 @@ public class CombatManager {
     public static void castAtCell(ServerPlayer p, String spellId, int cellX, int cellZ) {
         Combat combat = COMBATS.get(p.getUUID());
         if (combat == null) return;
+        if (combat.movementPaths.containsKey(p.getId())) {
+            hint(p, "§7Termine ton déplacement avant de lancer un sort.");
+            return;
+        }
         int side = combat.sideOf(p.getUUID());
         if (side < 0) return;
         if (!combat.isTurn(side)) {
@@ -542,10 +545,52 @@ public class CombatManager {
                 return;
             }
         }
-        // v0.18 : mecaniques speciales (bond / piege / vol de vie)
-        if (s.mechanic != null) {
+        if ("invulnerable".equals(s.mechanic)) {
+            Combat.UnitEffects effects = combat.effects.computeIfAbsent(p.getId(), ignored -> new Combat.UnitEffects());
+            if (combat.round < effects.invulnerableReadyRound) {
+                hint(p, "§cCe pouvoir sera prêt au tour " + effects.invulnerableReadyRound + ".");
+                return;
+            }
+            lockJoin(combat);
+            combat.setAp(side, combat.apOf(side) - s.apCost);
+            effects.invulnerableUntilRound = combat.round;
+            effects.invulnerableReadyRound = combat.round + 3;
+            broadcast(combat, "§b" + p.getName().getString() + " devient invincible jusqu'à la fin du tour ennemi !");
+            sendFx(combat, s, self, List.of(self));
+            sendStateAll(combat);
+            return;
+        }
+        if ("armor".equals(s.mechanic)) {
+            Combat.UnitEffects effects = combat.effects.computeIfAbsent(p.getId(), ignored -> new Combat.UnitEffects());
+            lockJoin(combat);
+            combat.setAp(side, combat.apOf(side) - s.apCost);
+            effects.shield += Math.max(6, s.damage + 8);
+            effects.armorTurns = Math.max(effects.armorTurns, 2);
+            broadcast(combat, "§b" + s.getName().getString() + " protège " + p.getName().getString() + " d'une armure magique !");
+            sendFx(combat, s, self, List.of(self));
+            sendStateAll(combat);
+            return;
+        }
+        if ("teleport".equals(s.mechanic)) {
+            if (!combat.isPlayable(target) || occupiedByUnit(combat, target, p)
+                    || ZoneType.chebyshev(self, target) > s.maxRange) {
+                hint(p, "§cLa case d'arrivée est inaccessible.");
+                return;
+            }
+            lockJoin(combat);
+            combat.setAp(side, combat.apOf(side) - s.apCost);
+            p.teleportTo(target.getX() + 0.5, combat.floorY, target.getZ() + 0.5);
+            combat.cells.put(p.getUUID(), target);
+            combat.setAnchorFor(p.getUUID(), target.getX() + 0.5, target.getZ() + 0.5);
+            combat.moveGrace[side] = combat.level.getGameTime() + 12;
+            sendFx(combat, s, self, List.of(target));
+            sendStateAll(combat);
+            return;
+        }
+        // Pièges, bond et vol sont traités directement; les altérations traversent applyZone.
+        if (s.mechanic != null && !List.of("dot", "slow", "pa_debuff", "heal_zone").contains(s.mechanic)) {
             int mdmg = s.damage + 2 * data.spellLevel(s.id) + RANDOM.nextInt(3) + armorBonusDamage(p);
-            if (s.mechanic.equals("piege")) {
+            if (s.mechanic.startsWith("piege")) {
                 if (!combat.isPlayable(target) || occupiedByUnit(combat, target, null)) {
                     hint(p, "§7Le piège doit être posé sur une case libre.");
                     return;
@@ -558,10 +603,21 @@ public class CombatManager {
                 }
                 lockJoin(combat);
                 combat.setAp(side, combat.apOf(side) - s.apCost);
-                combat.traps.add(new int[]{target.getX(), target.getZ(), side, mdmg});
+                int trapKind = switch (s.mechanic) {
+                    case "piege_slow" -> 1;
+                    case "piege_pa" -> 2;
+                    case "piege_dot" -> 3;
+                    default -> 0;
+                };
+                combat.traps.add(new int[]{target.getX(), target.getZ(), side, Math.max(1, mdmg), trapKind});
                 broadcast(combat, "§e" + p.getName().getString() + " pose §f" + s.getName().getString() + "§e !");
                 combat.level.playSound(null, target, SoundEvents.ROOTED_DIRT_PLACE, SoundSource.PLAYERS, 0.9f, 1.3f);
-                sendFxId(combat, "trap_place", self, List.of(target));
+                sendFxId(combat, switch (trapKind) {
+                    case 1 -> "trap_place_slow";
+                    case 2 -> "trap_place_pa";
+                    case 3 -> "trap_place_dot";
+                    default -> "trap_place";
+                }, self, List.of(target));
                 sendStateAll(combat);
                 return;
             }
@@ -591,6 +647,8 @@ public class CombatManager {
             sendFx(combat, s, self, List.of(target));
             if (foe instanceof MonsterNpc fm) {
                 fm.hurtCombat(mdmg);
+                applySpellEffect(combat, fm, s.mechanic, mdmg);
+                sendDamagePopup(combat, fm, mdmg);
                 combat.level.playSound(null, fm.blockPosition(), hurtSound(fm.getMonsterType()), SoundSource.HOSTILE, 1f, 1f);
                 broadcast(combat, "§e" + s.getName().getString() + " §rinflige §c" + mdmg + " §rdégâts à " + fm.getName().getString() + ".");
                 if (s.mechanic.equals("vol")) healCaster(combat, p, mdmg / 2);
@@ -607,11 +665,13 @@ public class CombatManager {
                 }
             } else if (foe instanceof ServerPlayer fp) {
                 int dealt = resistReduce(fp, mdmg);
+                sendDamagePopup(combat, fp, dealt);
                 PlayerRpgData fd = cap(fp);
                 if (fd != null) {
                     fd.setHp(fd.getHp() - dealt);
                     fr.wakfu.rpg.events.CommonEvents.sync(fp);
                 }
+                applySpellEffect(combat, fp, s.mechanic, dealt);
                 fp.level().playSound(null, fp.blockPosition(), SoundEvents.PLAYER_HURT, SoundSource.PLAYERS, 1f, 1f);
                 broadcast(combat, "§e" + s.getName().getString() + " §rinflige §c" + dealt + " §rdégâts à " + fp.getName().getString() + ".");
                 if (s.mechanic.equals("vol")) healCaster(combat, p, dealt / 2);
@@ -634,14 +694,37 @@ public class CombatManager {
         // v0.14 : soin (degats negatifs)
         if (s.damage < 0) {
             int heal = Math.max(1, -s.damage + 2 * data.spellLevel(s.id) + RANDOM.nextInt(3));
-            data.setHp(Math.min(data.maxHp() + armorBonusHp(p), data.getHp() + heal));
-            fr.wakfu.rpg.events.CommonEvents.sync(p);
+            if ("heal_zone".equals(s.mechanic)) {
+                List<BlockPos> healCells = s.zoneCells(self, target);
+                int healed = 0;
+                for (UUID allyId : combat.members) {
+                    ServerPlayer ally = member(combat, allyId);
+                    BlockPos allyCell = combat.cells.get(allyId);
+                    if (ally == null || allyCell == null || !healCells.contains(allyCell)) continue;
+                    PlayerRpgData allyData = cap(ally);
+                    if (allyData == null) continue;
+                    int oldHp = allyData.getHp();
+                    allyData.setHp(Math.min(allyData.maxHp() + armorBonusHp(ally), oldHp + heal));
+                    if (allyData.getHp() > oldHp) {
+                        int actualHeal = allyData.getHp() - oldHp;
+                        healed += actualHeal;
+                        sendHealingPopup(combat, ally, actualHeal);
+                        fr.wakfu.rpg.events.CommonEvents.sync(ally);
+                    }
+                }
+                broadcast(combat, "§a" + s.getName().getString() + " soigne les alliés dans la zone (§a+" + healed + " PV§a).");
+            } else {
+                int oldHp = data.getHp();
+                data.setHp(Math.min(data.maxHp() + armorBonusHp(p), data.getHp() + heal));
+                sendHealingPopup(combat, p, data.getHp() - oldHp);
+                fr.wakfu.rpg.events.CommonEvents.sync(p);
+            }
             broadcast(combat, "§a" + s.getName().getString() + " §2rend §a" + heal + " PV§2.");
             if (combat.spellsOf(side).size() == 3) {
                 combat.setAp(side, combat.apOf(side) + 1);
                 broadcast(combat, "§6Enchaînement parfait ! §e+1 PA");
             }
-            sendFx(combat, s, self, List.of(self));
+            sendFx(combat, s, self, s.zoneCells(self, target));
             sendStateAll(combat);
             return;
         }
@@ -693,6 +776,8 @@ public class CombatManager {
                 if (!(e instanceof MonsterNpc m) || !m.isAlive()) continue;
                 if (!zone.contains(m.blockPosition())) continue;
                 m.hurtCombat(dmg);
+                sendDamagePopup(combat, m, dmg);
+                applySpellEffect(combat, m, s.mechanic, dmg);
                 combat.level.playSound(null, m.blockPosition(), hurtSound(m.getMonsterType()), SoundSource.HOSTILE, 1f, 1f);
                 broadcast(combat, "§e" + s.getName().getString() + " §rinflige §c" + dmg + " §rdégâts à " + m.getName().getString() + ".");
                 if (m.getCurrentHp() <= 0 && caster != null) {
@@ -711,6 +796,8 @@ public class CombatManager {
             }
             if (!zone.contains(sm.blockPosition())) continue;
             sm.hurtCombat(dmg);
+            sendDamagePopup(combat, sm, dmg);
+            applySpellEffect(combat, sm, s.mechanic, dmg);
             combat.level.playSound(null, sm.blockPosition(), SoundEvents.WOOD_HIT, SoundSource.HOSTILE, 0.9f, 1f);
             broadcast(combat, "§e" + s.getName().getString() + " §rinflige §c" + dmg + " §rà " + sm.getName().getString() + ".");
             if (sm.getCurrentHp() <= 0) {
@@ -730,6 +817,8 @@ public class CombatManager {
                     if (od != null) {
                         dmg = resistReduce(opp, dmg);
                         od.setHp(od.getHp() - dmg);
+                        sendDamagePopup(combat, opp, dmg);
+                        applySpellEffect(combat, opp, s.mechanic, dmg);
                         fr.wakfu.rpg.events.CommonEvents.sync(opp);
                         opp.level().playSound(null, opp.blockPosition(), SoundEvents.PLAYER_HURT, SoundSource.PLAYERS, 1f, 1f);
                         broadcast(combat, "§e" + s.getName().getString() + " §rinflige §c" + dmg + " §rdégâts à " + opp.getName().getString() + ".");
@@ -742,65 +831,87 @@ public class CombatManager {
         }
     }
 
-    public static void moveToCell(ServerPlayer p, int cellX, int cellZ) {
-        Combat combat = COMBATS.get(p.getUUID());
+    public static void moveToCell(ServerPlayer player, int cellX, int cellZ) {
+        Combat combat = COMBATS.get(player.getUUID());
         if (combat == null) return;
-        int side = combat.sideOf(p.getUUID());
-        if (side < 0) return;
-        if (!combat.isTurn(side)) {
-            hint(p, "§7Attends ton tour.");
-            return;
-        }
-        // (le gate membre actif est plus bas)
-        if (side == 0 && !p.getUUID().equals(combat.activeMember())) {
-            hint(p, "§7Patience — c'est au tour d'un allié.");
-            return;
-        }
+        int side = combat.sideOf(player.getUUID());
+        if (side < 0 || !combat.isTurn(side)) return;
+        if (side == 0 && !player.getUUID().equals(combat.activeMember())) return;
+        if (combat.movementPaths.containsKey(player.getId())) return;
         BlockPos target = new BlockPos(cellX, combat.floorY, cellZ);
-        BlockPos self = combat.cells.get(p.getUUID());
-        if (self == null) return;
-        if (target.equals(self)) return;
-        if (!combat.isPlayable(target)) return;
-        if (occupiedByUnit(combat, target, p)) {
-            hint(p, "§7Case occupée.");
-            return;
-        }
-        // v0.19 : distance reelle du chemin (les murs bloquent)
-        int dist = bfsDist(combat, self, target, combat.mpOf(side), p);
-        if (dist < 0) {
-            hint(p, "§cTrop loin ou inaccessible (" + combat.mpOf(side) + " PM restants).");
+        BlockPos current = combat.cells.get(player.getUUID());
+        if (current == null || current.equals(target) || !combat.isPlayable(target)
+                || occupiedByUnit(combat, target, player)) return;
+        List<BlockPos> path = bfsPath(combat, current, target, player);
+        if (path == null || path.isEmpty() || path.size() > combat.mpOf(side)) {
+            hint(player, "§cCase trop loin ou chemin bloque. 1 PM par case, sans diagonale.");
             return;
         }
         lockJoin(combat);
-        combat.setMp(side, combat.mpOf(side) - dist);
-        combat.cells.put(p.getUUID(), target);
-        p.teleportTo(target.getX() + 0.5, combat.floorY, target.getZ() + 0.5);
-        combat.setAnchorFor(p.getUUID(), target.getX() + 0.5, target.getZ() + 0.5);
-        combat.moveGrace[side] = p.level().getGameTime() + 12; // animation client du deplacement
-        p.level().playSound(null, target, SoundEvents.ENDERMAN_TELEPORT, SoundSource.PLAYERS, 0.4f, 1.4f);
-        // v0.18 : piege ennemi sur la case d'arrivee ?
-        int trapDmg = triggerTrap(combat, side, target);
-        if (trapDmg > 0) {
-            trapDmg = resistReduce(p, trapDmg);
-            combat.level.playSound(null, target, SoundEvents.GENERIC_EXPLODE, SoundSource.PLAYERS, 0.7f, 1.3f);
-            sendFxId(combat, "trap_trigger", target, List.of(target));
-            PlayerRpgData pd = cap(p);
-            if (pd != null) {
-                pd.setHp(pd.getHp() - trapDmg);
-                fr.wakfu.rpg.events.CommonEvents.sync(p);
-                msg(p, "§c💥 Piège ! Tu subis " + trapDmg + " dégâts.");
-                if (pd.getHp() <= 0) {
-                    knockout(p);
-                    return;
-                }
-            }
-        }
+        combat.setMp(side, combat.mpOf(side) - path.size());
+        combat.movementPaths.put(player.getId(),
+                new Combat.MovementPath(side, path, combat.level.getGameTime() + 1));
         sendStateAll(combat);
     }
 
+    /** Moves every queued player one orthogonal cell and checks traps at each step. */
+    public static void tickMovement(ServerLevel level) {
+        long now = level.getGameTime();
+        for (Combat combat : new ArrayList<>(COMBATS.values())) {
+            if (combat.level != level || combat.movementPaths.isEmpty()) continue;
+            for (Map.Entry<Integer, Combat.MovementPath> entry : new ArrayList<>(combat.movementPaths.entrySet())) {
+                int entityId = entry.getKey();
+                Combat.MovementPath path = entry.getValue();
+                if (now < path.nextStepTick) continue;
+                Entity mover = level.getEntity(entityId);
+                if (!(mover instanceof ServerPlayer) || path.cursor >= path.cells.size()) {
+                    combat.movementPaths.remove(entityId);
+                    continue;
+                }
+                ServerPlayer player = (ServerPlayer) mover;
+                BlockPos next = path.cells.get(path.cursor);
+                if (!combat.isPlayable(next) || occupiedByUnit(combat, next, player)) {
+                    combat.movementPaths.remove(entityId);
+                    sendStateAll(combat);
+                    continue;
+                }
+                player.teleportTo(next.getX() + 0.5, combat.floorY, next.getZ() + 0.5);
+                combat.cells.put(player.getUUID(), next);
+                combat.setAnchorFor(player.getUUID(), next.getX() + 0.5, next.getZ() + 0.5);
+                combat.moveGrace[path.side] = now + 4;
+                player.setDeltaMovement(0, player.getDeltaMovement().y, 0);
+                int[] trap = takeTrap(combat, path.side, next);
+                if (trap != null) {
+                    int dealt = resistReduce(player, trap[3]);
+                    PlayerRpgData data = cap(player);
+                    if (data != null) {
+                        data.setHp(data.getHp() - dealt);
+                        sendDamagePopup(combat, player, dealt);
+                        fr.wakfu.rpg.events.CommonEvents.sync(player);
+                        applyTrapEffect(combat, player, trap);
+                        sendFxId(combat, "trap_trigger", next, List.of(next));
+                        msg(player, "§cPiege ! Tu subis " + dealt + " degats.");
+                        if (data.getHp() <= 0) {
+                            combat.movementPaths.remove(entityId);
+                            knockout(player);
+                            return;
+                        }
+                    }
+                }
+                path.cursor++;
+                path.nextStepTick = now + 3;
+                if (path.cursor >= path.cells.size()) combat.movementPaths.remove(entityId);
+                sendStateAll(combat);
+            }
+        }
+    }
     public static void endTurn(ServerPlayer p) {
         Combat combat = COMBATS.get(p.getUUID());
         if (combat == null) return;
+        if (combat.movementPaths.containsKey(p.getId())) {
+            hint(p, "§7Attends la fin de ton déplacement.");
+            return;
+        }
         int side = combat.sideOf(p.getUUID());
         if (side < 0 || !combat.isTurn(side)) return;
         if (side == 0 && !p.getUUID().equals(combat.activeMember())) {
@@ -818,12 +929,14 @@ public class CombatManager {
                 if (np != null) {
                     combat.apmp.put(nu, new int[]{maxApFor(np), maxMpFor(np)});
                     msg(np, "§6À ton tour !");
+                    startSideTurn(combat, 0, nu);
                 }
                 broadcast(combat, "§7Au tour de §f" + (np != null ? np.getName().getString() : "?") + "§7.");
                 sendStateAll(combat);
                 return;
             }
             combat.phase = Combat.Phase.SIDE_B;
+            startSideTurn(combat, 1, null);
             summonsAct(combat, 0);
             if (!combat.alive()) return;                       // fini pendant les invocations
             sendStateAll(combat);
@@ -839,6 +952,7 @@ public class CombatManager {
                 combat.setAp(next, maxApFor(np));
                 combat.setMp(next, maxMpFor(np));
                 combat.resetTurn(next);
+                startSideTurn(combat, next, np.getUUID());
                 msg(np, "§6À ton tour !");
             }
             sendStateAll(combat);
@@ -884,6 +998,7 @@ public class CombatManager {
             if (mp2 != null) combat.apmp.put(u, new int[]{maxApFor(mp2), maxMpFor(mp2)});
         }
         ServerPlayer act = activePlayer(combat);
+        startSideTurn(combat, 0, combat.activeMember());
         if (act != null) msg(act, "§6À ton tour.");
         if (combat.members.size() > 1 && act != null) {
             broadcast(combat, "§7Round §e" + combat.round + " §7— à §f" + act.getName().getString() + "§7 de jouer.");
@@ -932,28 +1047,14 @@ public class CombatManager {
 
         // rapprochement BFS (les murs bloquent)
         int steps = t.pm;
+        Combat.UnitEffects mobEffects = combat.effects.get(m.getId());
+        if (mobEffects != null && mobEffects.slowThisTurn) steps = Math.max(0, steps - 1);
         while (steps > 0 && ZoneType.chebyshev(cur, target) > t.range) {
             BlockPos next = bfsNext(combat, cur, target, m);
             if (next == null || next.equals(cur) || next.equals(target)) break;
             cur = next;
+            if (stepMonster(combat, m, 1, cur)) return;
             steps--;
-        }
-        if (!cur.equals(m.blockPosition())) {
-            m.teleportTo(cur.getX() + 0.5, combat.floorY, cur.getZ() + 0.5);
-        }
-        // v0.18 : piege pose par le joueur ?
-        int trapDmg = triggerTrap(combat, 1, cur);
-        if (trapDmg > 0) {
-            m.hurtCombat(trapDmg);
-            combat.level.playSound(null, cur, SoundEvents.GENERIC_EXPLODE, SoundSource.HOSTILE, 0.8f, 1.2f);
-            sendFxId(combat, "trap_trigger", cur, List.of(cur));
-            broadcast(combat, "§e💥 " + m.getName().getString() + " déclenche un piège : §c-" + trapDmg + "§e !");
-            if (m.getCurrentHp() <= 0) {
-                ServerPlayer trapper = activePlayer(combat);
-                if (trapper == null && !combat.members.isEmpty()) trapper = member(combat, combat.members.get(0));
-                if (trapper != null) mobDefeated(trapper, m, combat);
-                return;
-            }
         }
 
         int dist = ZoneType.chebyshev(cur, target);
@@ -971,6 +1072,7 @@ public class CombatManager {
             combat.level.playSound(null, cur, SoundEvents.PLAYER_ATTACK_SWEEP, SoundSource.HOSTILE, 0.6f, 0.9f);
             if (bestS != null) {
                 bestS.hurtCombat(raw);
+                sendDamagePopup(combat, bestS, raw);
                 combat.level.playSound(null, bestS.blockPosition(), SoundEvents.WOOD_HIT, SoundSource.HOSTILE, 0.9f, 1f);
                 broadcast(combat, "§c" + m.getName().getString() + " frappe §7" + bestS.getName().getString()
                         + " §c(§7-" + raw + "§c).");
@@ -985,6 +1087,7 @@ public class CombatManager {
                 PlayerRpgData data = cap(bestP);
                 if (data != null) {
                     data.setHp(data.getHp() - dmg);
+                    sendDamagePopup(combat, bestP, dmg);
                     fr.wakfu.rpg.events.CommonEvents.sync(bestP);
                     bestP.level().playSound(null, bestP.blockPosition(), SoundEvents.PLAYER_HURT, SoundSource.HOSTILE, 1f, 1f);
                     msg(bestP, "§c" + m.getName().getString() + " t'inflige " + dmg + " dégâts"
@@ -1006,33 +1109,7 @@ public class CombatManager {
 
 
 
-    // v0.27 : sync Alex's Mobs visual entities with MonsterNpc positions
-    private static void syncVisuals(Combat combat) {
-        for (int i = 0; i < combat.mobs.size(); i++) {
-            if (i >= combat.visualEntityIds.size()) break;
-            int vid = combat.visualEntityIds.get(i);
-            if (vid < 0) continue;
-            Entity visual = combat.level.getEntity(vid);
-            Entity mob = combat.level.getEntity(combat.mobs.get(i));
-            if (visual != null && mob != null && mob.isAlive()) {
-                visual.moveTo(mob.getX(), mob.getY(), mob.getZ(), mob.getYRot(), mob.getXRot());
-            } else if (visual != null && (mob == null || !mob.isAlive())) {
-                visual.discard();
-                combat.visualEntityIds.set(i, -1);
-            }
-        }
-    }
-
-    private static void cleanupVisuals(Combat combat) {
-        for (int vid : combat.visualEntityIds) {
-            if (vid < 0) continue;
-            Entity e = combat.level.getEntity(vid);
-            if (e != null) e.discard();
-        }
-        combat.visualEntityIds.clear();
-    }
-
-    // ------------------------------------------------------------ v0.27 : skills speciaux des monstres (Alex's Mobs)
+    // ------------------------------------------------------------ competences speciales du bestiaire Wakfu
     private static boolean executeMobSkill(Combat combat, MonsterNpc m, MobSkill skill,
                                            BlockPos cur, BlockPos target, ServerPlayer bestP,
                                            MonsterNpc bestS, MonsterType t) {
@@ -1042,7 +1119,9 @@ public class CombatManager {
         switch (skill.type) {
             case HEAL -> {
                 int heal = 5 + m.getLevel() * 2;
+                int oldHp = m.getCurrentHp();
                 m.setCurrentHp(Math.min(m.maxHpFor(), m.getCurrentHp() + heal));
+                sendHealingPopup(combat, m, m.getCurrentHp() - oldHp);
                 combat.level.playSound(null, cur, SoundEvents.PLAYER_LEVELUP, SoundSource.HOSTILE, 0.7f, 1.2f);
                 sendFxId(combat, "mob_heal", cur, List.of(cur));
                 broadcast(combat, "\u00a7d\u2726 " + mobName + " utilise \u00a7l" + skill.nameFr + "\u00a7r\u00a7d et recupere \u00a7a+" + heal + " PV\u00a7d !");
@@ -1097,13 +1176,14 @@ public class CombatManager {
                         }
                     }
                     if (bestPounce != null) {
-                        m.teleportTo(bestPounce.getX() + 0.5, combat.floorY, bestPounce.getZ() + 0.5);
+                        if (stepMonster(combat, m, 1, bestPounce)) return true;
                         int raw = m.getDamage() + 3 + RANDOM.nextInt(3);
                         if (bestP != null) {
                             int dmg = resistReduce(bestP, raw);
                             PlayerRpgData data = cap(bestP);
                             if (data != null) {
                                 data.setHp(data.getHp() - dmg);
+                                sendDamagePopup(combat, bestP, dmg);
                                 fr.wakfu.rpg.events.CommonEvents.sync(bestP);
                                 bestP.level().playSound(null, bestP.blockPosition(), SoundEvents.PLAYER_ATTACK_CRIT, SoundSource.HOSTILE, 1f, 0.8f);
                                 broadcast(combat, "\u00a7c " + mobName + " bondit sur " + bestP.getName().getString() + " \u00a7c(-" + dmg + ") !");
@@ -1119,10 +1199,8 @@ public class CombatManager {
                         BlockPos next = bfsNext(combat, sprintCur, target, m);
                         if (next == null || next.equals(sprintCur) || next.equals(target)) break;
                         sprintCur = next;
+                        if (stepMonster(combat, m, 1, sprintCur)) return true;
                         extra--;
-                    }
-                    if (!sprintCur.equals(cur)) {
-                        m.teleportTo(sprintCur.getX() + 0.5, combat.floorY, sprintCur.getZ() + 0.5);
                     }
                     combat.level.playSound(null, cur, SoundEvents.HORSE_GALLOP, SoundSource.HOSTILE, 0.8f, 1.2f);
                     broadcast(combat, "\u00a7b " + mobName + " utilise \u00a7l" + skill.nameFr + "\u00a7r\u00a7b et se deplace vite !");
@@ -1152,6 +1230,7 @@ public class CombatManager {
                             PlayerRpgData data = cap(mp);
                             if (data != null) {
                                 data.setHp(data.getHp() - dmg);
+                                sendDamagePopup(combat, mp, dmg);
                                 fr.wakfu.rpg.events.CommonEvents.sync(mp);
                                 msg(mp, "\u00a7c " + mobName + " utilise \u00a7l" + skill.nameFr + "\u00a7r\u00a7c ! -" + dmg + " PV !");
                                 hit = true;
@@ -1166,7 +1245,9 @@ public class CombatManager {
                     if (se instanceof MonsterNpc sm && sm.isAlive()) {
                         for (BlockPos ac : aoeCells) {
                             if (ac.getX() == sm.blockPosition().getX() && ac.getZ() == sm.blockPosition().getZ()) {
-                                sm.hurtCombat(aoeDamage); hit = true;
+                                sm.hurtCombat(aoeDamage);
+                                sendDamagePopup(combat, sm, aoeDamage);
+                                hit = true;
                                 if (sm.getCurrentHp() <= 0) { combat.summonsOf(0).remove((Integer) sm.getId()); sm.discard(); }
                                 break;
                             }
@@ -1184,18 +1265,22 @@ public class CombatManager {
                     PlayerRpgData data = cap(bestP);
                     if (data != null) {
                         data.setHp(data.getHp() - dmg);
+                        sendDamagePopup(combat, bestP, dmg);
                         fr.wakfu.rpg.events.CommonEvents.sync(bestP);
                         bestP.level().playSound(null, bestP.blockPosition(), SoundEvents.PLAYER_ATTACK_CRIT, SoundSource.HOSTILE, 1f, 1f);
                         broadcast(combat, "\u00a7c\u2694 " + mobName + " utilise \u00a7l" + skill.nameFr + "\u00a7r\u00a7c sur " + bestP.getName().getString() + " \u00a7c(-" + dmg + ") !");
                         if ("life_steal".equals(skill.id)) {
                             int heal = dmg / 2;
+                            int oldHp = m.getCurrentHp();
                             m.setCurrentHp(Math.min(m.maxHpFor(), m.getCurrentHp() + heal));
+                            sendHealingPopup(combat, m, m.getCurrentHp() - oldHp);
                             broadcast(combat, "\u00a7d " + mobName + " vole \u00a7a+" + heal + " PV\u00a7d !");
                         }
                         if (data.getHp() <= 0) { broadcast(combat, "\u00a7c " + bestP.getName().getString() + " est mis a terre !"); knockout(bestP); }
                     }
                 } else if (bestS != null) {
                     bestS.hurtCombat(raw);
+                    sendDamagePopup(combat, bestS, raw);
                     broadcast(combat, "\u00a7c\u2694 " + mobName + " utilise \u00a7l" + skill.nameFr + "\u00a7r\u00a7c sur " + bestS.getName().getString() + " \u00a7c(-" + raw + ") !");
                     if (bestS.getCurrentHp() <= 0) { combat.summonsOf(0).remove((Integer) bestS.getId()); bestS.discard(); }
                 }
@@ -1224,7 +1309,7 @@ public class CombatManager {
         fr.wakfu.rpg.core.Codex.kill(player, t.getId());
         // v0.22 : loot propre a chaque monstre de zone (panoplie + trophee) ;
         // les invocations ne droppent rien
-        ItemStack drop = (t.xpReward > 0 && RANDOM.nextInt(100) < 90) ? rollLoot(t) : null;
+        ItemStack drop = t.xpReward > 0 ? rollLoot(t, player) : ItemStack.EMPTY;
         int idx = combat.mobs.indexOf(copy.getId());
         int origin = (idx >= 0 && idx < combat.mobOrigins.size()) ? combat.mobOrigins.get(idx) : -1;
         copy.dieCombat();
@@ -1232,7 +1317,7 @@ public class CombatManager {
             combat.mobs.remove(idx);
             if (idx < combat.mobOrigins.size()) combat.mobOrigins.remove(idx);
         }
-        ServerLevel ow = combat.level.getServer().overworld();
+        ServerLevel ow = combat.originLevel != null ? combat.originLevel : combat.level.getServer().overworld();
         if (origin >= 0) {
             Entity orig = ow.getEntity(origin);
             if (orig instanceof MonsterNpc mo) mo.dieCombat();
@@ -1241,19 +1326,23 @@ public class CombatManager {
         // (Inventory.add() vide le stack fusionne -> "air" / "0 lingots") ;
         // une seule ligne en barre d'action, plus rien dans le chat.
         StringBuilder lootLine = new StringBuilder();
+        if (t.xpReward > 0) {
+            combat.defeatedMobNames.add(copy.displayName());
+            combat.earnedXp.merge(player.getUUID(), xp, Integer::sum);
+        }
         if (drop != null && !drop.isEmpty()) {
             ItemStack rec = drop.copy();
             fr.wakfu.rpg.core.Codex.item(player, rec);
-            give(player, drop);
             lootLine.append(rec.getHoverName().getString());
+            combat.earnedLoot.computeIfAbsent(player.getUUID(), k -> new java.util.ArrayList<>()).add(rec.copy());
         }
         if (t == MonsterType.BOSS) {
             ItemStack tro = fr.wakfu.rpg.item.WakfuTrophyItem.make("chef");
             ItemStack rec = tro.copy();
             fr.wakfu.rpg.core.Codex.item(player, rec);
-            give(player, tro);
             if (lootLine.length() > 0) lootLine.append(" §7· ");
             lootLine.append(rec.getHoverName().getString());
+            combat.earnedLoot.computeIfAbsent(player.getUUID(), k -> new java.util.ArrayList<>()).add(rec.copy());
         }
         if (t.xpReward > 0) {
             // v0.25 : argent ($) versé dans la bourse — visible HUD + grimoire
@@ -1261,8 +1350,15 @@ public class CombatManager {
             if (t == MonsterType.BOSS) coins += 100 + RANDOM.nextInt(5) * 10L;
             fr.wakfu.rpg.core.Money.add(player.getUUID(), coins);
             fr.wakfu.rpg.core.Money.sync(player);
+            combat.earnedKamas.merge(player.getUUID(), coins, Long::sum);
             if (lootLine.length() > 0) lootLine.append(" §7· ");
-            lootLine.append("§6+").append(coins).append(" $");
+            lootLine.append("§6+").append(coins).append(" pièces");
+            ItemStack ingots = new ItemStack(fr.wakfu.rpg.registry.ModItems.WAKFU_INGOT.get(), 2 + RANDOM.nextInt(3));
+            ItemStack ingotRecord = ingots.copy();
+            fr.wakfu.rpg.core.Codex.item(player, ingotRecord);
+            if (lootLine.length() > 0) lootLine.append(" §7· ");
+            lootLine.append(ingotRecord.getHoverName().getString()).append(" ×").append(ingotRecord.getCount());
+            combat.earnedLoot.computeIfAbsent(player.getUUID(), k -> new java.util.ArrayList<>()).add(ingotRecord.copy());
         }
         player.level().playSound(null, player.blockPosition(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 0.55f, 1.4f);
         if (!combat.mobs.isEmpty()) {
@@ -1277,15 +1373,23 @@ public class CombatManager {
 
     /** v0.19 : dernier monstre tombe — victoire de tout le groupe. */
     private static void groupVictory(Combat combat, ServerPlayer killer, String lootLine) {
-        // v0.27 : collecte des donnees de victoire
-        java.util.List<String> mobNames = new java.util.ArrayList<>();
-        for (int mid : new java.util.ArrayList<>(combat.mobs)) {
-            Entity e = combat.level.getEntity(mid);
-            if (e instanceof MonsterNpc mn) mobNames.add(mn.getName().getString());
+        if (!combat.dungeonId.isEmpty() && combat.dungeonWave < 3 && spawnNextDungeonWave(combat)) {
+            combat.dungeonWave++;
+            Entity coreEntity = combat.level.getEntity(combat.dungeonSpawnerId);
+            if (coreEntity instanceof ArmorStand core)
+                core.setCustomName(Component.literal("§d✦ Cœur d'invocation · Vague " + combat.dungeonWave + "/3 ✦"));
+            combat.phase = Combat.Phase.SIDE_A;
+            combat.activeIdx = 0;
+            combat.round++;
+            combat.resetTurn(0);
+            for (UUID u : combat.members) {
+                ServerPlayer p = member(combat, u);
+                if (p != null) combat.apmp.put(u, new int[]{maxApFor(p), maxMpFor(p)});
+            }
+            broadcast(combat, "§d✦ Vague " + combat.dungeonWave + "/3 ! Les créatures arrivent autour du cœur d'invocation.");
+            sendStateAll(combat);
+            return;
         }
-
-        long duration = combat.level.getServer().getTickCount() - combat.enterTick;
-
         for (UUID u : new ArrayList<>(combat.members)) {
             ServerPlayer mp2 = member(combat, u);
             if (mp2 == null) continue;
@@ -1295,22 +1399,9 @@ public class CombatManager {
                 if (d != null) {
                     d.addXp(25);
                     fr.wakfu.rpg.events.CommonEvents.sync(mp2);
+                    combat.earnedXp.merge(u, 25, Integer::sum);
                 }
             }
-            // v0.27 : envoyer ecran de victoire a chaque joueur
-            PlayerRpgData vd = cap(mp2);
-            int totalXp = vd != null ? 50 : 25;  // estimation
-            long totalMoney = fr.wakfu.rpg.core.Money.balance(mp2.getUUID());
-            java.util.List<String> lootList = new java.util.ArrayList<>();
-            if (lootLine != null && !lootLine.isEmpty()) {
-                for (String part : lootLine.split(" §7· ")) {
-                    lootList.add(part.trim());
-                }
-            }
-            fr.wakfu.rpg.network.VictoryPacket vp = new fr.wakfu.rpg.network.VictoryPacket(
-                "§6Victoire !", totalXp, totalMoney,
-                mobNames, lootList, combat.round, duration);
-            fr.wakfu.rpg.network.Network.sendToPlayer(mp2, vp);
         }
         if (killer != null) {
             killer.level().playSound(null, killer.blockPosition(), SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.MASTER, 0.45f, 1f);
@@ -1395,7 +1486,6 @@ public class CombatManager {
             sendState(loser, null);
             msg(loser, "§c💀 Défaite en duel... Tu te réveilles au spawn.");
         }
-        cleanupVisuals(combat);
         removeCamera(combat);
         cleanupSummons(combat);
         Arena.clearAt(combat.level, combat.baseX, combat.floorY, combat.baseZ, combat.size);
@@ -1403,14 +1493,8 @@ public class CombatManager {
 
     /** v0.19 : fin du combat pour TOUT le groupe. */
     private static void endCombatAll(Combat combat, String message, boolean toSpawn) {
-        // v0.27 : collect data before cleanup
-        java.util.List<String> vicMobs = new java.util.ArrayList<>();
         int vicRound = combat.round;
         long vicDur = combat.level.getServer().getTickCount() - combat.enterTick;
-        for (int mid : new java.util.ArrayList<>(combat.mobs)) {
-            Entity e = combat.level.getEntity(mid);
-            if (e instanceof MonsterNpc mn) vicMobs.add(mn.getName().getString());
-        }
         boolean isVictory = message != null && message.contains("Victoire");
 
         for (UUID u : new ArrayList<>(combat.members)) {
@@ -1420,12 +1504,16 @@ public class CombatManager {
                 exitSide(mp2, toSpawn);
                 sendState(mp2, null);
                 if (message != null) msg(mp2, message);
-                // v0.27 : send victory screen AFTER teleport
+                // Deliver rewards after restoring the pre-combat inventory.
                 if (isVictory) {
-                    fr.wakfu.rpg.network.VictoryPacket vp =
-                        new fr.wakfu.rpg.network.VictoryPacket(
-                            "Victoire !", 50, 0, vicMobs,
-                            new java.util.ArrayList<>(), vicRound, vicDur);
+                    java.util.List<ItemStack> loot = combat.earnedLoot.getOrDefault(u, java.util.Collections.emptyList());
+                    for (ItemStack stack : loot) give(mp2, stack.copy());
+                    fr.wakfu.rpg.core.Money.sync(mp2);
+                    fr.wakfu.rpg.network.VictoryPacket vp = new fr.wakfu.rpg.network.VictoryPacket(
+                            "Victoire !", combat.earnedXp.getOrDefault(u, 0),
+                            combat.earnedKamas.getOrDefault(u, 0L),
+                            new java.util.ArrayList<>(combat.defeatedMobNames),
+                            new java.util.ArrayList<>(loot), vicRound, vicDur);
                     fr.wakfu.rpg.network.Network.sendToPlayer(mp2, vp);
                 }
             }
@@ -1438,7 +1526,7 @@ public class CombatManager {
     private static void cleanupAll(Combat combat) {
         combat.members.clear();
         combat.cells.clear();
-        ServerLevel ow = combat.level.getServer().overworld();
+        ServerLevel ow = combat.originLevel != null ? combat.originLevel : combat.level.getServer().overworld();
         for (int i = 0; i < combat.mobs.size(); i++) {
             Entity copy = combat.level.getEntity(combat.mobs.get(i));
             int origin = i < combat.mobOrigins.size() ? combat.mobOrigins.get(i) : -1;
@@ -1452,9 +1540,14 @@ public class CombatManager {
         }
         combat.mobs.clear();
         combat.mobOrigins.clear();
+        Entity dungeonSpawner = combat.dungeonSpawnerId < 0 ? null : combat.level.getEntity(combat.dungeonSpawnerId);
+        if (dungeonSpawner != null) dungeonSpawner.discard();
+        for (ArmorStand stand : combat.level.getEntitiesOfClass(ArmorStand.class,
+                new AABB(combat.baseX, combat.floorY - 2, combat.baseZ,
+                        combat.baseX + combat.size, combat.floorY + 8, combat.baseZ + combat.size),
+                a -> a.getTags().contains("wakfurpg_dungeon_spawner"))) stand.discard();
         combat.traps.clear();
         cleanupSummons(combat);
-        cleanupVisuals(combat);
         removeCamera(combat);
         Arena.clearAt(combat.level, combat.baseX, combat.floorY, combat.baseZ, combat.size);
         BY_KEY.remove(combat.key);
@@ -1481,7 +1574,6 @@ public class CombatManager {
                 sendState(other, null);
                 msg(other, "§7Le duel est interrompu.");
             }
-            cleanupVisuals(combat);
         removeCamera(combat);
             Arena.clearAt(combat.level, combat.baseX, combat.floorY, combat.baseZ, combat.size);
         } else {
@@ -1572,32 +1664,73 @@ public class CombatManager {
         if (!player.getInventory().add(s)) player.drop(s, false);
     }
 
-    /** v0.22 : butin par type de monstre — piece de la panoplie de sa zone
-     *  (30 %), trophee unique (25 %), equipement runique classique (15 %),
-     *  sinon lingots. Le boss donne toujours une piece de sa panoplie. */
-    private static ItemStack rollLoot(MonsterType t) {
+    /** Une piece d'armure garantie, en priorite sur l'emplacement le moins looté. */
+    private static ItemStack rollLoot(MonsterType t, ServerPlayer player) {
         net.minecraft.util.RandomSource rng = net.minecraft.util.RandomSource.create();
+        String slot = leastOwnedArmorSlot(player);
         if (t == MonsterType.BOSS) {
-            int br = RANDOM.nextInt(100);
-            if (br < 50) return fr.wakfu.rpg.item.WakfuArmorItem.randomSetPiece("chef", rng);
-            return fr.wakfu.rpg.item.WakfuArmorItem.randomFantasyPiece(rng);
+            return fr.wakfu.rpg.item.WakfuArmorItem.makeSetPiece("chef", slot);
         }
         String set = fr.wakfu.rpg.item.WakfuArmorItem.setForMonster(t.getId());
-        String trophy = fr.wakfu.rpg.item.WakfuTrophyItem.forMonster(t.getId());
-        int r = RANDOM.nextInt(100);
-        if (r < 20 && set != null) return fr.wakfu.rpg.item.WakfuArmorItem.randomSetPiece(set, rng);
-        if (r < 35 && trophy != null) return fr.wakfu.rpg.item.WakfuTrophyItem.make(trophy);
-        if (r < 60) {
-            // Momic drops fantasy armor more often
-            return fr.wakfu.rpg.item.WakfuArmorItem.randomFantasyPiece(rng);
+        if (set != null) return fr.wakfu.rpg.item.WakfuArmorItem.makeSetPiece(set, slot);
+        return fr.wakfu.rpg.item.WakfuArmorItem.makePiece(slot,
+                RANDOM.nextInt(100) < 70 ? "commune" : "rare", 1, rng);
+    }
+
+    private static boolean spawnNextDungeonWave(Combat combat) {
+        int wave = combat.dungeonWave + 1;
+        MonsterType[] types = wave == 2
+                ? new MonsterType[]{MonsterType.ROAD_BRIGAND, MonsterType.ASH_SCOUT, MonsterType.HEAVY_WARRIOR, MonsterType.BONE_ARCHER}
+                : new MonsterType[]{MonsterType.FOREST_SENTINEL, MonsterType.ROAD_ASSASSIN, MonsterType.ROOT_WARDEN,
+                    MonsterType.SIEGE_GOLEM, MonsterType.BOSS};
+        int centerX = combat.baseX + combat.size / 2;
+        int centerZ = combat.baseZ + combat.size / 2;
+        int baseLevel = Math.min(combat.dungeonMaxLevel, combat.dungeonMinLevel + (wave - 1) * 5);
+        for (int i = 0; i < types.length; i++) {
+            MonsterNpc mob = new MonsterNpc(ModEntities.MONSTER.get(), combat.level);
+            int level = Math.min(combat.dungeonMaxLevel, baseLevel + (i % 3) * Math.max(1, (combat.dungeonMaxLevel - combat.dungeonMinLevel) / 10));
+            mob.init(types[i], Math.max(combat.dungeonMinLevel, level));
+            mob.addTag("arena_copy");
+            BlockPos cell = null;
+            for (int tries = 0; tries < combat.size * combat.size; tries++) {
+                int dx = ((i + tries) % 2 == 0 ? -1 : 1) * (2 + (tries / 2) % Math.max(2, combat.size / 3));
+                int dz = ((i * 3 + tries) % 2 == 0 ? -1 : 1) * (1 + tries % Math.max(2, combat.size / 3));
+                BlockPos candidate = new BlockPos(centerX + dx, combat.floorY, centerZ + dz);
+                if (combat.isPlayable(candidate) && !occupiedByUnit(combat, candidate, null)) { cell = candidate; break; }
+            }
+            if (cell == null) cell = new BlockPos(combat.baseX + combat.size - 3, combat.floorY, combat.baseZ + 2 + i);
+            mob.moveTo(cell.getX() + 0.5, combat.floorY, cell.getZ() + 0.5, 0, 0);
+            combat.level.addFreshEntity(mob);
+            combat.mobs.add(mob.getId());
+            combat.mobOrigins.add(-1);
         }
-        if (r < 85) {
-            String rarity = RANDOM.nextInt(100) < 60 ? "commune" : (RANDOM.nextInt(100) < 80 ? "rare" : "epique");
-            String[] slots = {"head", "chest", "legs", "feet"};
-            String slot = slots[RANDOM.nextInt(4)];
-            return fr.wakfu.rpg.item.WakfuArmorItem.makePiece(slot, rarity, 1, rng);
+        combat.monsterId = combat.mobs.get(0);
+        combat.monsterOriginId = -1;
+        combat.cellB = combat.firstMobCell();
+        return !combat.mobs.isEmpty();
+    }
+
+    private static String leastOwnedArmorSlot(ServerPlayer player) {
+        String[] slots = {"head", "chest", "legs", "feet"};
+        int[] counts = new int[slots.length];
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack.getItem() instanceof fr.wakfu.rpg.item.WakfuArmorItem) {
+                int index = fr.wakfu.rpg.item.WakfuArmorItem.slotOrdinal(
+                        fr.wakfu.rpg.item.WakfuArmorItem.slotOf(stack));
+                counts[index] += stack.getCount();
+            }
         }
-        return ItemStack.EMPTY;
+        for (ItemStack stack : player.getInventory().armor) {
+            if (stack.getItem() instanceof fr.wakfu.rpg.item.WakfuArmorItem) {
+                int index = fr.wakfu.rpg.item.WakfuArmorItem.slotOrdinal(
+                        fr.wakfu.rpg.item.WakfuArmorItem.slotOf(stack));
+                counts[index] += stack.getCount();
+            }
+        }
+        int min = java.util.Arrays.stream(counts).min().orElse(0);
+        java.util.List<String> candidates = new java.util.ArrayList<>();
+        for (int i = 0; i < slots.length; i++) if (counts[i] == min) candidates.add(slots[i]);
+        return candidates.get(RANDOM.nextInt(candidates.size()));
     }
 
     @SuppressWarnings("unused")
@@ -1654,8 +1787,20 @@ public class CombatManager {
 
     /** Reduit les degats subis : -2% par point de resistance (max -50%). */
     public static int resistReduce(ServerPlayer player, int raw) {
+        if (raw <= 0) return 0;
+        Combat combat = COMBATS.get(player.getUUID());
+        Combat.UnitEffects effects = combat == null ? null : combat.effects.get(player.getId());
+        if (effects != null && combat.round <= effects.invulnerableUntilRound) return 0;
+        int remaining = raw;
+        if (effects != null && effects.shield > 0) {
+            int absorbed = Math.min(remaining, effects.shield);
+            effects.shield -= absorbed;
+            remaining -= absorbed;
+        }
+        if (remaining == 0) return 0;
+        if (effects != null && effects.armorTurns > 0) remaining = Math.max(1, remaining / 2);
         int pct = Math.min(50, resistTotal(player) * 2);
-        return Math.max(1, raw - raw * pct / 100);
+        return Math.max(1, remaining - remaining * pct / 100);
     }
 
     /** Renvoie explicitement tous les blocs de l'arene + la lumiere au client
@@ -1806,7 +1951,8 @@ public class CombatManager {
             }
         }
         List<int[]> trapList = new ArrayList<>();
-        for (int[] t : combat.traps) trapList.add(new int[]{t[0], t[1], t[2] == side ? 0 : 1});
+        for (int[] t : combat.traps)
+            trapList.add(new int[]{t[0], t[1], t[2] == side ? 0 : 1, t.length > 4 ? t[4] : 0});
 
         // v0.19 : unites (joueurs + mobs) {sideRel, kind(0 joueur/1 mob), x, z, hp, maxHp, active}
         List<int[]> units = new ArrayList<>();
@@ -1918,63 +2064,40 @@ public class CombatManager {
     }
 
     // ------------------------------------------------------------ v0.19 : chemin / murs
-    /** Distance BFS (8 directions) en evitant murs et unites ; -1 si > limit ou inaccessible. */
+    /** One movement point buys one orthogonal square; diagonals are not valid steps. */
     private static int bfsDist(Combat combat, BlockPos from, BlockPos to, int limit, Entity mover) {
-        Map<BlockPos, Integer> dist = new HashMap<>();
-        List<BlockPos> queue = new ArrayList<>();
-        dist.put(from, 0);
+        List<BlockPos> path = bfsPath(combat, from, to, mover);
+        return path == null || path.size() > limit ? -1 : path.size();
+    }
+
+    private static List<BlockPos> bfsPath(Combat combat, BlockPos from, BlockPos to, Entity mover) {
+        Map<BlockPos, BlockPos> previous = new HashMap<>();
+        java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
+        previous.put(from, from);
         queue.add(from);
+        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
         while (!queue.isEmpty()) {
-            BlockPos c = queue.remove(0);
-            int d = dist.get(c);
-            if (c.equals(to)) return d;
-            if (d >= limit) continue;
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    if (dx == 0 && dz == 0) continue;
-                    BlockPos n = new BlockPos(c.getX() + dx, combat.floorY, c.getZ() + dz);
-                    if (dist.containsKey(n)) continue;
-                    if (!n.equals(to)) {
-                        if (!combat.isPlayable(n) || occupiedByUnit(combat, n, mover)) continue;
-                    }
-                    dist.put(n, d + 1);
-                    queue.add(n);
-                }
+            BlockPos cell = queue.removeFirst();
+            if (cell.equals(to)) break;
+            for (int[] dir : dirs) {
+                BlockPos next = new BlockPos(cell.getX() + dir[0], combat.floorY, cell.getZ() + dir[1]);
+                if (previous.containsKey(next)) continue;
+                if (!next.equals(to) && (!combat.isPlayable(next) || occupiedByUnit(combat, next, mover))) continue;
+                previous.put(next, cell);
+                queue.addLast(next);
             }
         }
-        return -1;
+        if (!previous.containsKey(to)) return null;
+        List<BlockPos> path = new ArrayList<>();
+        for (BlockPos cell = to; !cell.equals(from); cell = previous.get(cell)) path.add(cell);
+        java.util.Collections.reverse(path);
+        return path;
     }
 
     /** Prochaine case du plus court chemin BFS (ou `from` si bloque). */
     private static BlockPos bfsNext(Combat combat, BlockPos from, BlockPos to, Entity mover) {
-        Map<BlockPos, BlockPos> prev = new HashMap<>();
-        List<BlockPos> queue = new ArrayList<>();
-        prev.put(from, from);
-        queue.add(from);
-        while (!queue.isEmpty()) {
-            BlockPos c = queue.remove(0);
-            if (c.equals(to)) break;
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    if (dx == 0 && dz == 0) continue;
-                    BlockPos n = new BlockPos(c.getX() + dx, combat.floorY, c.getZ() + dz);
-                    if (prev.containsKey(n)) continue;
-                    if (!n.equals(to)) {
-                        if (!combat.isPlayable(n) || occupiedByUnit(combat, n, mover)) continue;
-                    }
-                    prev.put(n, c);
-                    queue.add(n);
-                }
-            }
-        }
-        if (!prev.containsKey(to)) return from;
-        BlockPos c = to;
-        for (int guard = 0; guard < 512; guard++) {
-            BlockPos pr = prev.get(c);
-            if (pr == null || pr.equals(from)) return c;
-            c = pr;
-        }
-        return from;
+        List<BlockPos> path = bfsPath(combat, from, to, mover);
+        return path == null || path.isEmpty() ? from : path.get(0);
     }
 
     /** Ligne de vue (Bresenham) : les murs internes bloquent les cases intermediaires. */
@@ -2058,40 +2181,16 @@ public class CombatManager {
             if (best == null) continue;
 
             // approche case par case
-            int pm = mt.pm;
+            Combat.UnitEffects summonEffects = combat.effects.get(s.getId());
+            int pm = mt.pm - (summonEffects != null && summonEffects.slowThisTurn ? 1 : 0);
             while (pm > 0 && ZoneType.chebyshev(cur, tgt) > mt.range) {
-                int dx = tgt.getX() - cur.getX();
-                int dz = tgt.getZ() - cur.getZ();
-                int sx = Integer.signum(dx);
-                int sz = Integer.signum(dz);
-                BlockPos next = new BlockPos(cur.getX() + sx, combat.floorY, cur.getZ() + sz);
-                if (!combat.isPlayable(next) || occupiedByUnit(combat, next, s) || next.equals(tgt)) {
-                    next = Math.abs(dx) >= Math.abs(dz)
-                            ? new BlockPos(cur.getX() + sx, combat.floorY, cur.getZ())
-                            : new BlockPos(cur.getX(), combat.floorY, cur.getZ() + sz);
-                    if (!combat.isPlayable(next) || occupiedByUnit(combat, next, s) || next.equals(tgt)) break;
-                }
+                BlockPos next = bfsNext(combat, cur, tgt, s);
+                if (next == null || next.equals(cur) || next.equals(tgt)) break;
                 cur = next;
+                if (stepMonster(combat, s, side, cur)) break;
                 pm--;
             }
-            if (!cur.equals(s.blockPosition())) {
-                s.teleportTo(cur.getX() + 0.5, combat.floorY, cur.getZ() + 0.5);
-            }
-            // v0.18 : piege ennemi ?
-            int stDmg = triggerTrap(combat, side, cur);
-            if (stDmg > 0) {
-                s.hurtCombat(stDmg);
-                combat.level.playSound(null, cur, SoundEvents.GENERIC_EXPLODE, SoundSource.HOSTILE, 0.6f, 1.3f);
-                sendFxId(combat, "trap_trigger", cur, List.of(cur));
-                broadcast(combat, "§e💥 " + s.getName().getString() + " déclenche un piège : §c-" + stDmg + "§e.");
-                if (s.getCurrentHp() <= 0) {
-                    combat.summonsOf(side).remove((Integer) s.getId());
-                    s.discard();
-                    broadcast(combat, "§7L'invocation est détruite par le piège !");
-                    sendStateAll(combat);
-                    continue;
-                }
-            }
+            if (!s.isAlive()) continue;
 
             // attaque
             if (ZoneType.chebyshev(cur, tgt) <= mt.range) {
@@ -2102,6 +2201,7 @@ public class CombatManager {
                     PlayerRpgData td = cap(tp);
                     if (td != null) {
                         td.setHp(td.getHp() - dmg);
+                        sendDamagePopup(combat, tp, dmg);
                         fr.wakfu.rpg.events.CommonEvents.sync(tp);
                         tp.level().playSound(null, tp.blockPosition(), SoundEvents.PLAYER_HURT, SoundSource.PLAYERS, 1f, 1f);
                         broadcast(combat, "§2" + s.getName().getString() + " §rfrappe §c" + tp.getName().getString()
@@ -2114,6 +2214,7 @@ public class CombatManager {
                     }
                 } else if (best instanceof MonsterNpc tm) {
                     tm.hurtCombat(dmg);
+                    sendDamagePopup(combat, tm, dmg);
                     combat.level.playSound(null, tm.blockPosition(), hurtSound(tm.getMonsterType()), SoundSource.HOSTILE, 0.9f, 1.1f);
                     broadcast(combat, "§2" + s.getName().getString() + " §rfrappe §c" + tm.getName().getString()
                             + " §7(§c-" + dmg + "§7).");
@@ -2227,15 +2328,110 @@ public class CombatManager {
     }
 
     /** v0.18 : declenche le piege ennemi pose sur la case ; renvoie ses degats bruts (0 = aucun). */
-    private static int triggerTrap(Combat combat, int moverSide, BlockPos cell) {
+    private static int[] takeTrap(Combat combat, int moverSide, BlockPos cell) {
         for (var it = combat.traps.iterator(); it.hasNext(); ) {
             int[] t = it.next();
             if (t[0] == cell.getX() && t[1] == cell.getZ() && t[2] != moverSide) {
                 it.remove();
-                return t[3];
+                return t;
             }
         }
-        return 0;
+        return null;
+    }
+
+    private static void applySpellEffect(Combat combat, Entity target, String mechanic, int damage) {
+        if (mechanic == null || target == null) return;
+        Combat.UnitEffects effects = combat.effects.computeIfAbsent(target.getId(), ignored -> new Combat.UnitEffects());
+        switch (mechanic) {
+            case "dot" -> {
+                effects.dotDamage = Math.max(effects.dotDamage, Math.max(1, damage / 3));
+                effects.dotTurns = Math.max(effects.dotTurns, 3);
+            }
+            case "slow", "piege_slow" -> effects.slowTurns = Math.max(effects.slowTurns, 2);
+            case "pa_debuff", "piege_pa" -> effects.apDownTurns = Math.max(effects.apDownTurns, 1);
+            default -> { }
+        }
+    }
+
+    private static void applyTrapEffect(Combat combat, Entity target, int[] trap) {
+        if (trap.length < 5) return;
+        switch (trap[4]) {
+            case 1 -> applySpellEffect(combat, target, "slow", trap[3]);
+            case 2 -> applySpellEffect(combat, target, "pa_debuff", trap[3]);
+            case 3 -> applySpellEffect(combat, target, "dot", trap[3]);
+            default -> { }
+        }
+    }
+
+    private static void startSideTurn(Combat combat, int side, UUID activePlayerId) {
+        List<Entity> units = new ArrayList<>();
+        if (side == 0) {
+            ServerPlayer active = activePlayerId == null ? null : member(combat, activePlayerId);
+            if (active != null) units.add(active);
+            for (int id : combat.summonsOf(0)) {
+                Entity summon = combat.level.getEntity(id);
+                if (summon != null) units.add(summon);
+            }
+        } else if (combat.pvp()) {
+            ServerPlayer opponent = online(combat, 1);
+            if (opponent != null) units.add(opponent);
+            for (int id : combat.summonsOf(1)) {
+                Entity summon = combat.level.getEntity(id);
+                if (summon != null) units.add(summon);
+            }
+        } else {
+            for (int id : new ArrayList<>(combat.mobs)) {
+                Entity mob = combat.level.getEntity(id);
+                if (mob != null) units.add(mob);
+            }
+            for (int id : combat.summonsOf(1)) {
+                Entity summon = combat.level.getEntity(id);
+                if (summon != null) units.add(summon);
+            }
+        }
+        for (Entity unit : units) {
+            Combat.UnitEffects effects = combat.effects.get(unit.getId());
+            if (effects == null) continue;
+            effects.slowThisTurn = effects.slowTurns > 0;
+            effects.apDownThisTurn = effects.apDownTurns > 0;
+            if (effects.dotTurns > 0) {
+                if (unit instanceof MonsterNpc mob && mob.isAlive()) {
+                    mob.hurtCombat(effects.dotDamage);
+                    sendDamagePopup(combat, mob, effects.dotDamage);
+                    if (mob.getCurrentHp() <= 0) {
+                        effects.dotTurns = 0;
+                        if (mob.isSummon()) {
+                            combat.summonsOf(side).remove((Integer) mob.getId());
+                            mob.discard();
+                        } else {
+                            ServerPlayer winner = activePlayer(combat);
+                            if (winner != null) mobDefeated(winner, mob, combat);
+                        }
+                    }
+                } else if (unit instanceof ServerPlayer player) {
+                    PlayerRpgData data = cap(player);
+                    if (data != null && combat.round > effects.invulnerableUntilRound) {
+                        data.setHp(data.getHp() - effects.dotDamage);
+                        sendDamagePopup(combat, player, effects.dotDamage);
+                        fr.wakfu.rpg.events.CommonEvents.sync(player);
+                        if (data.getHp() <= 0) knockout(player);
+                    }
+                }
+                effects.dotTurns--;
+                if (effects.dotTurns <= 0) effects.dotDamage = 0;
+            }
+            if (effects.slowTurns > 0) effects.slowTurns--;
+            if (effects.apDownTurns > 0) effects.apDownTurns--;
+            if (unit instanceof ServerPlayer player && player.getUUID().equals(activePlayerId)) {
+                int[] apmp = combat.apmp.get(player.getUUID());
+                if (apmp != null) {
+                    if (effects.slowThisTurn) apmp[1] = Math.max(0, apmp[1] - 1);
+                    if (effects.apDownThisTurn) apmp[0] = Math.max(0, apmp[0] - 1);
+                }
+            }
+            if (effects.armorTurns > 0 && unit instanceof ServerPlayer player
+                    && player.getUUID().equals(activePlayerId)) effects.armorTurns--;
+        }
     }
 
     /** v0.18 : vol de vie — soigne le lanceur. */
@@ -2243,7 +2439,9 @@ public class CombatManager {
         if (amount <= 0) return;
         PlayerRpgData d = cap(p);
         if (d == null) return;
+        int oldHp = d.getHp();
         d.setHp(Math.min(d.maxHp() + armorBonusHp(p), d.getHp() + amount));
+        sendHealingPopup(combat, p, d.getHp() - oldHp);
         fr.wakfu.rpg.events.CommonEvents.sync(p);
         sendFxId(combat, "vol_heal", p.blockPosition(),
                 List.of(combat.cells.getOrDefault(p.getUUID(), p.blockPosition())));
@@ -2256,6 +2454,29 @@ public class CombatManager {
         for (int side = 0; side < 2; side++) {
             ServerPlayer pl = online(combat, side);
             if (pl != null) Network.sendToPlayer(pl, fx);
+        }
+    }
+
+    private static void sendDamagePopup(Combat combat, Entity target, int amount) {
+        sendCombatPopup(combat, target, amount, false);
+    }
+
+    private static void sendHealingPopup(Combat combat, Entity target, int amount) {
+        sendCombatPopup(combat, target, amount, true);
+    }
+
+    private static void sendCombatPopup(Combat combat, Entity target, int amount, boolean healing) {
+        if (amount <= 0) return;
+        Entity rendered = target;
+        if (target instanceof MonsterNpc) {
+            String tag = "wakfurpg_model_of_" + target.getUUID();
+            rendered = combat.level.getEntitiesOfClass(Entity.class, target.getBoundingBox().inflate(6.0D),
+                    e -> e.getTags().contains(tag)).stream().findFirst().orElse(target);
+        }
+        var popup = new fr.wakfu.rpg.network.DamagePopupPacket(rendered.getId(), amount, healing);
+        for (int side = 0; side < 2; side++) {
+            ServerPlayer player = online(combat, side);
+            if (player != null) Network.sendToPlayer(player, popup);
         }
     }
 
@@ -2276,5 +2497,3 @@ public class CombatManager {
         }
     }
 }
-
-

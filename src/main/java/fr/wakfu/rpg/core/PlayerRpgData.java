@@ -181,6 +181,7 @@ public class PlayerRpgData implements INBTSerializable<CompoundTag> {
     public java.util.List<String> getEquipped() {
         if (equipped.isEmpty() && rpgClass != null) {
             for (var s : fr.wakfu.rpg.core.spell.Spells.forClass(rpgClass)) {
+                if (s.unlockLevel > level) continue;
                 if (equipped.size() >= fr.wakfu.rpg.core.spell.Spells.MAX_EQUIPPED) break;
                 equipped.add(s.id);
             }

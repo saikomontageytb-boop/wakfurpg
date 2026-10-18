@@ -45,6 +45,8 @@ public class WakfuRPG {
         event.put(ModEntities.MERCHANT.get(), Mob.createMobAttributes().build());
         event.put(ModEntities.HERALD.get(), Mob.createMobAttributes().build());
         event.put(ModEntities.MARKET.get(), Mob.createMobAttributes().build());
+        event.put(ModEntities.SAILOR.get(), Mob.createMobAttributes().build());
+        event.put(ModEntities.DUNGEON_NPC.get(), Mob.createMobAttributes().build());
         event.put(ModEntities.MONSTER.get(), Mob.createMobAttributes()
                 .add(Attributes.MOVEMENT_SPEED, 0.28D).build());
 

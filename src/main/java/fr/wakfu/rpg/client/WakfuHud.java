@@ -270,7 +270,16 @@ public class WakfuHud implements IGuiOverlay {
             int sy = barY + 4;
             g.fill(sx, sy, sx + slotS, sy + slotS, 0xFF1A1A26);
             ResourceLocation icon = new ResourceLocation(WakfuRPG.MODID, "textures/item/spell_" + id + ".png");
-            g.blit(icon, sx + 3, sy + 3, 16, 16, 0, 0, 32, 32, 32, 32);
+            if (sp != null && mc.getResourceManager().getResource(icon).isEmpty()) {
+                // pas de texture pour ce sort : glyphe de secours du grimoire (20 px réduit à 16 px)
+                g.pose().pushPose();
+                g.pose().translate(sx + 3, sy + 3, 0);
+                g.pose().scale(0.8F, 0.8F, 1.0F);
+                GrimoireScreen.drawSpellIcon(g, sp, 0, 0);
+                g.pose().popPose();
+            } else {
+                g.blit(icon, sx + 3, sy + 3, 16, 16, 0, 0, 32, 32, 32, 32);
+            }
             int cost = sp == null ? 0 : sp.apCost;
             boolean usable = st.yourTurn && st.ap >= cost;
             if (!usable) g.fill(sx, sy, sx + slotS, sy + slotS, 0x99000000);
@@ -291,7 +300,8 @@ public class WakfuHud implements IGuiOverlay {
         boolean canEnd = st.yourTurn;
         g.fill(ex, ey, ex + ew, ey + eh, canEnd ? 0xFFCCAA33 : 0xFF555555);
         g.fill(ex + 1, ey + 1, ex + ew - 1, ey + eh - 1, canEnd ? 0xFFEECC55 : 0xFF666666);
-        g.drawString(mc.font, "§0Fin du tour", ex + 5, ey + 6, 0x222222);
+        g.drawCenteredString(mc.font, "§0Fin du tour", ex + ew / 2, ey + 2, 0x222222);
+        g.drawCenteredString(mc.font, "§0(Espace)", ex + ew / 2, ey + 11, 0x222222);
         HUD_RECTS.add(new int[]{ex, ey, ew, eh, 10});
 
         // fuite
@@ -308,7 +318,7 @@ public class WakfuHud implements IGuiOverlay {
             line = "§e" + sel.getName().getString() + " §7— zone §a" + sel.zoneLabel()
                     + " §7· portée §a" + sel.rangeLabel() + " §7· clic pour lancer, clic droit pour annuler";
         } else if (st.yourTurn) {
-            line = "§7Clique une case pour te déplacer (§a" + st.mp + " PM§7) · touches §e1-4§7 : sorts · §eR§7 : fin du tour";
+            line = "§7Clique une case pour te déplacer (§a" + st.mp + " PM§7) · touches §e1-4§7 : sorts · §eEspace§7 : fin du tour";
         } else {
             // v0.19 : en groupe, nomme l'allie qui joue
             String actor = null;

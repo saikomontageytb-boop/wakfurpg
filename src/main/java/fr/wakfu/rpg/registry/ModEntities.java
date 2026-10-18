@@ -30,6 +30,12 @@ public class ModEntities {
     public static final RegistryObject<EntityType<MarketNpc>> MARKET =
             ENTITIES.register("market", () -> EntityType.Builder.of(MarketNpc::new, MobCategory.MISC)
                     .sized(0.6F, 1.95F).clientTrackingRange(10).build("market"));
+    public static final RegistryObject<EntityType<SailorNpc>> SAILOR =
+            ENTITIES.register("sailor", () -> EntityType.Builder.of(SailorNpc::new, MobCategory.MISC)
+                    .sized(0.6F, 1.95F).clientTrackingRange(10).build("sailor"));
+    public static final RegistryObject<EntityType<fr.wakfu.rpg.entity.DungeonNpc>> DUNGEON_NPC =
+            ENTITIES.register("dungeon_npc", () -> EntityType.Builder.of(fr.wakfu.rpg.entity.DungeonNpc::new, MobCategory.MISC)
+                    .sized(0.6F, 1.95F).clientTrackingRange(10).build("dungeon_npc"));
     public static final RegistryObject<EntityType<MonsterNpc>> MONSTER =
             ENTITIES.register("monster", () -> EntityType.Builder.of(MonsterNpc::new, MobCategory.MISC)
                     .sized(0.6F, 1.95F).clientTrackingRange(10).build("monster"));

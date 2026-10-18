@@ -6,11 +6,25 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.network.NetworkEvent;
 
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /** Client -> serveur : choix de classe depuis l'ecran du grimoire. */
 public class ChooseClassPacket {
+    private static final ConcurrentHashMap<UUID, Long> CLASS_CHANGE_PERMISSIONS = new ConcurrentHashMap<>();
+    private static final long CLASS_CHANGE_PERMISSION_TTL_MS = 10 * 60 * 1000L;
+
     private final String classId;
+
+    public static void allowClassChange(UUID playerId) {
+        CLASS_CHANGE_PERMISSIONS.put(playerId, System.currentTimeMillis());
+    }
+
+    public static boolean consumeClassChangePermission(UUID playerId) {
+        Long grantedAt = CLASS_CHANGE_PERMISSIONS.remove(playerId);
+        return grantedAt != null && System.currentTimeMillis() - grantedAt <= CLASS_CHANGE_PERMISSION_TTL_MS;
+    }
 
     public ChooseClassPacket(String classId) {
         this.classId = classId;
@@ -32,7 +46,20 @@ public class ChooseClassPacket {
             if (c == null) return;
             player.getCapability(ModCapabilities.RPG).ifPresent(data -> {
                 if (data.hasClass()) {
-                    player.displayClientMessage(Component.translatable("wakfurpg.already_class"), true);
+                    if (!consumeClassChangePermission(player.getUUID())) {
+                        player.displayClientMessage(Component.literal(
+                                "Utilise /wakfu classe pour rouvrir le choix des classes."), true);
+                        return;
+                    }
+                    if (data.getRpgClass() == c) {
+                        player.displayClientMessage(Component.literal(
+                                "Tu es déjà " + c.getName().getString() + "."), true);
+                        return;
+                    }
+                    data.changeClass(c);
+                    player.displayClientMessage(Component.literal("Classe changée pour "
+                            + c.getName().getString() + " ; niveau conservé, sorts réinitialisés."), true);
+                    fr.wakfu.rpg.events.CommonEvents.sync(player);
                     return;
                 }
                 data.chooseClass(c);

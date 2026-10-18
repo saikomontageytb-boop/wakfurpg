@@ -25,6 +25,8 @@ public class NpcRenderer extends MobRenderer<ClassMasterNpc, PlayerModel<ClassMa
             new ResourceLocation(WakfuRPG.MODID, "textures/entity/skin_merchant.png");
     private static final ResourceLocation MARKET =
             new ResourceLocation(WakfuRPG.MODID, "textures/entity/skin_market.png");
+    private static final ResourceLocation SAILOR =
+            new ResourceLocation(WakfuRPG.MODID, "textures/entity/skin_sailor.png");
 
     public NpcRenderer(EntityRendererProvider.Context ctx) {
         super(ctx, new PlayerModel<>(ctx.bakeLayer(ModelLayers.PLAYER), false), 0.5F);
@@ -36,6 +38,7 @@ public class NpcRenderer extends MobRenderer<ClassMasterNpc, PlayerModel<ClassMa
         if (entity.getType() == ModEntities.HERALD.get()) return HERALD;
         if (entity.getType() == ModEntities.MERCHANT.get()) return MERCHANT;
         if (entity.getType() == ModEntities.MARKET.get()) return MARKET;
+        if (entity.getType() == ModEntities.SAILOR.get()) return SAILOR;
         return MASTER;
     }
 }

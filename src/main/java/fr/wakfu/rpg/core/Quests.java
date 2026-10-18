@@ -122,7 +122,7 @@ public class Quests {
             Quest next = current(data);
             // v0.24 : une seule ligne en barre d'action (le chat ne recoit plus rien)
             StringBuilder fin = new StringBuilder("§a✔ Quête terminée : §6" + q.title + " §a(+" + q.xp + " XP"
-                    + (q.ingots > 0 ? ", +" + q.ingots * 10 + " $" : "")
+                    + (q.ingots > 0 ? ", +" + q.ingots * 10 + " pièces" : "")
                     + (q.rewardArmor != null ? ", récompense" : "") + ").");
             if (next != null) fin.append(" §6Nouvelle quête : §f").append(next.title);
             else fin.append(" §6Toutes les quêtes accomplies !");

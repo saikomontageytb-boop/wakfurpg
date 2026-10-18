@@ -1,0 +1,6 @@
+{
+    "textures":  {
+                     "layer0":  "wakfurpg:item/fantasy_thief_leggings"
+                 },
+    "parent":  "item/generated"
+}

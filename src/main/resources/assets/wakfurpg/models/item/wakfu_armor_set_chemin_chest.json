@@ -1,0 +1,6 @@
+{
+    "textures":  {
+                     "layer0":  "wakfurpg:item/fantasy_thief_chestplate"
+                 },
+    "parent":  "item/generated"
+}

@@ -38,10 +38,11 @@ public class Codex {
         if (s == null || s.isEmpty()) return null;
         var item = s.getItem();
         if (item == ModItems.WAKFU_INGOT.get()) return "ingot";
-        if (item == ModItems.WAKFU_WEAPON.get()) return "sword_" + fr.wakfu.rpg.item.WakfuWeaponItem.rarityOf(s);
-        if (item == ModItems.WAKFU_WEAPON.get()) return "bow_" + fr.wakfu.rpg.item.WakfuWeaponItem.rarityOf(s);
+        if (item == ModItems.WAKFU_WEAPON.get())
+            return fr.wakfu.rpg.item.WakfuWeaponItem.kindOf(s) + "_"
+                    + fr.wakfu.rpg.item.WakfuWeaponItem.rarityOf(s);
         if (item == ModItems.WAKFU_GRIMOIRE.get()) return "grimoire";
-        if (item == ModItems.WAKFU_ARMOR.get()) {
+        if (item instanceof fr.wakfu.rpg.item.WakfuArmorItem) {
             String set = fr.wakfu.rpg.item.WakfuArmorItem.setOf(s);
             if (!set.isEmpty()) {
                 return "set_" + set + "_" + fr.wakfu.rpg.item.WakfuArmorItem.slotOf(s);

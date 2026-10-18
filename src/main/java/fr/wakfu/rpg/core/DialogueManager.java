@@ -1,6 +1,7 @@
 package fr.wakfu.rpg.core;
 
 import fr.wakfu.rpg.entity.ClassMasterNpc;
+import fr.wakfu.rpg.entity.SailorNpc;
 import fr.wakfu.rpg.network.DialoguePacket;
 import fr.wakfu.rpg.network.Network;
 import fr.wakfu.rpg.registry.ModEntities;
@@ -8,6 +9,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
@@ -27,27 +29,21 @@ public class DialogueManager {
     public static void openRoot(ClassMasterNpc npc, ServerPlayer player) {
         player.getCapability(ModCapabilities.RPG).ifPresent(data -> {
             String name = npc.getName().getString();
-            if (!data.hasClass()) {
-                send(player, npc, new DialogueNode(name,
-                        "§6Bienvenue, voyageur.§r Le Wakfu coule en toi, mais ton chemin n'est pas encore trace.\nEn ces terres, chacun doit choisir sa voie : le guerrier qui fend, l'archer qui perce, ou l'invocateur qui commande aux poupees.\n§7Qui veux-tu devenir ?",
-                        List.of("§cIop§r — la force et la melee",
-                                "§aCrâ§r — l'arc et la precision",
-                                "§2Sadida§r — la nature et les poupées",
-                                "§7Partir")));
-            } else {
-                String cur = data.getRpgClass().getId();
-                send(player, npc, new DialogueNode(name,
-                        "Que le Wakfu te guide, " + data.getRpgClass().getName().getString() + " de niveau " + data.getLevel() + ".\n"
-                                + "§8La voie peut changer : niveau, XP et bonus sont conservés, mais tes sorts seront réinitialisés.\n§7Embrasser une autre voie ?",
-                        List.of(
-                                "§cDevenir Iop§r — la force et la mêlée" + (cur.equals("iop") ? " §8(actuelle)" : ""),
-                                "§aDevenir Crâ§r — l'arc et la précision" + (cur.equals("cra") ? " §8(actuelle)" : ""),
-                                "§2Devenir Sadida§r — la nature et les poupées" + (cur.equals("sadida") ? " §8(actuelle)" : ""),
-                                "§7Partir")));
-            }
+            List<String> choices = List.of(
+                    "§cSykar§r — téléportation et duel",
+                    "§6Tor§r — armure et protection",
+                    "§9Splian§r — pièges et ralentissements",
+                    "§aGema§r — soins et soutien",
+                    "§5Enestras§r — malédictions et affaiblissements",
+                    "§7Partir");
+            String message = data.hasClass()
+                    ? "Tu es " + data.getRpgClass().getName().getString() + ", niveau " + data.getLevel()
+                        + ". Chaque voie possède ses propres sorts et sa mécanique. Changer de voie conserve ton niveau et ton XP, mais réinitialise tes sorts."
+                    : "Choisis ta voie. Tu débloques trois sorts au départ, puis un nouveau sort tous les cinq niveaux."
+                    ;
+            send(player, npc, new DialogueNode(name, message, choices));
         });
     }
-
     public static void openDone(ClassMasterNpc npc, ServerPlayer player) {
         player.getCapability(ModCapabilities.RPG).ifPresent(data -> {
             String name = npc.getName().getString();
@@ -59,38 +55,141 @@ public class DialogueManager {
 
     /** Traitement d'un choix recu du client pour le maitre des classes. */
     public static void handleChoice(ClassMasterNpc npc, ServerPlayer player, int choice) {
+        if (choice < 0 || choice >= 5) return;
+        RpgClass want = switch (choice) {
+            case 0 -> RpgClass.SYKAR;
+            case 1 -> RpgClass.TOR;
+            case 2 -> RpgClass.SPLIAN;
+            case 3 -> RpgClass.GEMA;
+            default -> RpgClass.ENESTRAS;
+        };
         player.getCapability(ModCapabilities.RPG).ifPresent(data -> {
             if (!data.hasClass()) {
-                RpgClass want = choice == 0 ? RpgClass.IOP : (choice == 1 ? RpgClass.CRA : (choice == 2 ? RpgClass.SADIDA : null));
-                if (want != null) {
-                    data.chooseClass(want);
-                    player.sendSystemMessage(Component.translatable("wakfurpg.class_chosen", want.getName()));
-                    fr.wakfu.rpg.events.CommonEvents.sync(player);
-                    openDone(npc, player);
-                }
-                // choix 3 = partir : rien a faire, le client ferme
+                data.chooseClass(want);
+                player.sendSystemMessage(Component.translatable("wakfurpg.class_chosen", want.getName()));
+                fr.wakfu.rpg.events.CommonEvents.sync(player);
+                openDone(npc, player);
+            } else if (data.getRpgClass() == want) {
+                player.sendSystemMessage(Component.literal("Tu es déjà " + want.getName().getString() + "."));
             } else {
-                // v0.12 : changement de classe (niveau conserve, sorts reset)
-                RpgClass want = choice == 0 ? RpgClass.IOP
-                        : (choice == 1 ? RpgClass.CRA : (choice == 2 ? RpgClass.SADIDA : null));
-                if (want != null) {
-                    if (data.getRpgClass() == want) {
-                        player.sendSystemMessage(Component.literal("§7Tu es déjà " + want.getName().getString() + "."));
-                    } else {
-                        data.changeClass(want);
-                        player.sendSystemMessage(Component.literal(
-                                "§6Tu embrasses la voie du " + want.getName().getString()
-                                        + " §6! Sorts réinitialisés, niveau " + data.getLevel() + " conservé."));
-                        fr.wakfu.rpg.events.CommonEvents.sync(player);
-                        openDone(npc, player);
-                    }
-                }
+                data.changeClass(want);
+                player.sendSystemMessage(Component.literal("Tu embrasses la voie de " + want.getName().getString()
+                        + " ! Sorts réinitialisés, niveau " + data.getLevel() + " conservé."));
+                fr.wakfu.rpg.events.CommonEvents.sync(player);
+                openDone(npc, player);
             }
         });
     }
-
     public static void send(ServerPlayer player, ClassMasterNpc npc, DialogueNode node) {
         Network.sendToPlayer(player, new DialoguePacket(npc.getId(), node));
+    }
+
+    public static void openSailor(SailorNpc npc, ServerPlayer player) {
+        player.getCapability(ModCapabilities.RPG).ifPresent(data -> {
+            boolean onIsland = player.serverLevel().dimension().equals(IslandMap.DIMENSION);
+            String message = onIsland
+                    ? "Le bateau repart vers le village-\u00e9cole. Tu peux revenir quand tu veux."
+                    : data.getLevel() >= IslandMap.MIN_LEVEL
+                        ? "La travers\u00e9e vers Grecos est pr\u00eate. Les cr\u00e9atures y sont plus dangereuses que dans les terres du tutoriel."
+                        : "Je ne peux pas encore t'emmener \u00e0 Grecos. Reviens me voir quand tu auras atteint le niveau 5.";
+            String action = onIsland ? "Reprendre le bateau vers le village" : "Partir pour Grecos";
+            send(player, npc, new DialogueNode("Marin", message,
+                    onIsland || data.getLevel() >= IslandMap.MIN_LEVEL
+                            ? List.of(action, "Rester ici") : List.of("Compris", "Partir")));
+        });
+    }
+
+    public static void handleSailorChoice(SailorNpc npc, ServerPlayer player, int choice) {
+        if (choice != 0) return;
+        if (npc.isRemoved() || npc.level() != player.serverLevel()
+                || npc.distanceToSqr(player) > 64.0) {
+            player.sendSystemMessage(Component.literal("Le marin est trop loin. Approche-toi et reparle-lui."));
+            return;
+        }
+        boolean onIsland = player.serverLevel().dimension().equals(IslandMap.DIMENSION);
+        player.getCapability(ModCapabilities.RPG).ifPresent(data -> {
+            if (!onIsland && data.getLevel() < IslandMap.MIN_LEVEL) {
+                player.sendSystemMessage(Component.literal("Le marin attend que tu atteignes le niveau 5."));
+                return;
+            }
+            ServerLevel destination;
+            BlockPos landing;
+            if (onIsland) {
+                destination = player.getServer().overworld();
+                landing = fr.wakfu.rpg.core.NpcSpots.streetSpot(destination,
+                        destination.getSharedSpawnPos(), "marin");
+            } else {
+                destination = player.getServer().getLevel(IslandMap.DIMENSION);
+                if (destination == null) {
+                    player.sendSystemMessage(Component.literal("La carte de Grecos n'est pas disponible."));
+                    return;
+                }
+                landing = IslandMap.safeArrival(destination);
+            }
+            if (player.isPassenger()) player.stopRiding();
+            double x = landing.getX() + 0.5, y = landing.getY(), z = landing.getZ() + 0.5;
+            player.teleportTo(destination, x, y, z, player.getYRot(), player.getXRot());
+            boolean moved = player.serverLevel() == destination;
+            if (!moved) {
+                org.apache.logging.log4j.LogManager.getLogger("wakfurpg").error(
+                        "La traversée du marin a échoué pour {} : {} -> {} à {}, {}, {} (retour={}).",
+                        player.getGameProfile().getName(), player.serverLevel().dimension().location(),
+                        destination.dimension().location(), x, y, z, moved);
+                player.sendSystemMessage(Component.literal("La traversée a échoué. Réessaie dans quelques secondes."));
+                return;
+            }
+            player.setDeltaMovement(0, 0, 0);
+            player.fallDistance = 0;
+            player.sendSystemMessage(Component.literal(onIsland
+                    ? "Tu es de retour au village-\u00e9cole."
+                    : "Bienvenue \u00e0 Grecos. Explore l'\u00eele et pr\u00e9pare-toi \u00e0 des combats plus difficiles."));
+            org.apache.logging.log4j.LogManager.getLogger("wakfurpg").info(
+                    "Traversée du marin réussie pour {} : {} -> {} à {}, {}, {}.",
+                    player.getGameProfile().getName(), onIsland ? IslandMap.DIMENSION.location() : Level.OVERWORLD.location(),
+                    destination.dimension().location(), x, y, z);
+        });
+    }
+    public static void ensureSailorAtSpawn(ServerLevel level, boolean forceLoad) {
+        boolean island = level.dimension().equals(IslandMap.DIMENSION);
+        BlockPos spawn = island ? IslandMap.spawn(level) : level.getSharedSpawnPos();
+        if (island) {
+            IslandMap.prepare(level);
+            // Before /setworldspawn was configured, these NPC copies were
+            // anchored around the map's imported arrival point. Load that old
+            // area once as well so startup can remove its saved duplicates.
+            if (forceLoad) {
+                BlockPos legacy = IslandMap.MAP_SPAWN;
+                for (int cx = (legacy.getX() - 48) >> 4; cx <= (legacy.getX() + 48) >> 4; cx++)
+                    for (int cz = (legacy.getZ() - 48) >> 4; cz <= (legacy.getZ() + 48) >> 4; cz++)
+                        level.getChunk(cx, cz);
+            }
+        }
+        if (forceLoad) {
+            for (int cx = (spawn.getX() - 48) >> 4; cx <= (spawn.getX() + 48) >> 4; cx++)
+                for (int cz = (spawn.getZ() - 48) >> 4; cz <= (spawn.getZ() + 48) >> 4; cz++) level.getChunk(cx, cz);
+        }
+        // Scan every currently loaded chunk, not only the new spawn radius. The
+        // spawn was moved with /setworldspawn, so older copies can be nearby but
+        // outside the new 48-block query. Keep one nearest copy and delete extras.
+        List<SailorNpc> sailors = new java.util.ArrayList<>();
+        for (net.minecraft.world.entity.Entity entity : level.getAllEntities())
+            if (entity instanceof SailorNpc sailor) sailors.add(sailor);
+        BlockPos destination = island ? IslandMap.safeArrival(level)
+                : NpcSpots.streetSpot(level, spawn, "marin");
+        SailorNpc keeper = sailors.stream().min(java.util.Comparator.comparingDouble(n ->
+                n.distanceToSqr(destination.getX() + 0.5, destination.getY(), destination.getZ() + 0.5))).orElse(null);
+        for (SailorNpc sailor : sailors) if (sailor != keeper) sailor.discard();
+        org.apache.logging.log4j.LogManager.getLogger("wakfurpg")
+                .info("Vérification des marins dans {} : {} instance(s), {} doublon(s) supprimé(s).",
+                        level.dimension().location(), sailors.size(), Math.max(0, sailors.size() - 1));
+        if (keeper == null) {
+            keeper = new SailorNpc(ModEntities.SAILOR.get(), level);
+            keeper.setCustomName(Component.literal("Marin"));
+            keeper.setCustomNameVisible(true);
+            level.addFreshEntity(keeper);
+        }
+        keeper.moveTo(destination.getX() + 0.5, destination.getY(), destination.getZ() + 0.5,
+                island ? 180 : 0, 0);
     }
 
     /**
@@ -144,7 +243,7 @@ public class DialogueManager {
                     + "§6Quête : " + q.title + "§r\n" + q.desc
                     + "\n§8Progression : §e" + Math.min(data.getQuestProgress(), q.target) + "/" + q.target
                     + "\n§8Récompense : §e" + q.xp + " XP"
-                    + (q.ingots > 0 ? " + " + q.ingots * 10 + " $" : "")
+                    + (q.ingots > 0 ? " + " + q.ingots * 10 + " pièces" : "")
                     + (q.rewardArmor != null ? " + récompense spéciale" : "");
             send(player, npc, new DialogueNode(name, txt, done
                     ? List.of("§aRendre la quête", "§7Partir")
@@ -236,7 +335,7 @@ public class DialogueManager {
         if (result != null) txt.append(result).append("\n");
         txt.append("§6Bienvenue sur mon étal, voyageur !§r\n")
                 .append("Mes prix suivent le marché du Wakfu : ils changent chaque jour.\n")
-                .append("§8Ta bourse : §e$ ").append(countIngots(player));
+                .append("§8Ta bourse : §e").append(countIngots(player)).append(" pièces");
         int pApple = marketPrice(player, 80, 1);
         int pRare = marketPrice(player, 140, 2);
         int pWeapon = marketPrice(player, 120, 3);
@@ -248,16 +347,16 @@ public class DialogueManager {
         int vWepR = marketPrice(player, 50, 9);
         int vWepE = marketPrice(player, 120, 10);
         send(player, npc, new DialogueNode(name, txt.toString(), List.of(
-                "§6Acheter§r Pomme dorée §8(" + pApple + " $§8)",
-                "§6Acheter§r Armure rare §8(" + pRare + " $§8)",
-                "§6Acheter§r Arme runique §8(" + pWeapon + " $§8)",
-                "§6Acheter§r Armure épique §8(" + pEpic + " $§8)",
-                "§eVendre§r armure commune §8(+" + vArmorC + " $§8)",
-                "§eVendre§r armure rare §8(+" + vArmorR + " $§8)",
-                "§eVendre§r armure épique §8(+" + vArmorE + " $§8)",
-                "§eVendre§r arme commune §8(+" + vWepC + " $§8)",
-                "§eVendre§r arme rare §8(+" + vWepR + " $§8)",
-                "§eVendre§r arme épique §8(+" + vWepE + " $§8)",
+                "§6Acheter§r Pomme dorée §8(" + pApple + " pièces§8)",
+                "§6Acheter§r Armure rare §8(" + pRare + " pièces§8)",
+                "§6Acheter§r Arme runique §8(" + pWeapon + " pièces§8)",
+                "§6Acheter§r Armure épique §8(" + pEpic + " pièces§8)",
+                "§eVendre§r armure commune §8(+" + vArmorC + " pièces§8)",
+                "§eVendre§r armure rare §8(+" + vArmorR + " pièces§8)",
+                "§eVendre§r armure épique §8(+" + vArmorE + " pièces§8)",
+                "§eVendre§r arme commune §8(+" + vWepC + " pièces§8)",
+                "§eVendre§r arme rare §8(+" + vWepR + " pièces§8)",
+                "§eVendre§r arme épique §8(+" + vWepE + " pièces§8)",
                 "§7Partir")));
     }
 
@@ -268,7 +367,7 @@ public class DialogueManager {
             int[] bases = {80, 140, 120, 280};   // v0.25 : prix en $
             int price = marketPrice(player, bases[choice], salt);
             if (!consumeIngots(player, price)) {
-                openMerchant(npc, player, "§cIl te faut " + price + " $ pour cet achat.");
+                openMerchant(npc, player, "§cIl te faut " + price + " pièces pour cet achat.");
                 return;
             }
             ItemStack bought;
@@ -284,7 +383,7 @@ public class DialogueManager {
             }
             player.getInventory().add(bought);
             fr.wakfu.rpg.core.Codex.item(player, bought);
-            openMerchant(npc, player, "§aAcheté : " + bought.getHoverName().getString() + " §apour " + price + " $.");
+            openMerchant(npc, player, "§aAcheté : " + bought.getHoverName().getString() + " §apour " + price + " pièces.");
             return;
         }
         // vente : cherche le premier objet correspondant dans l'inventaire
@@ -310,7 +409,7 @@ public class DialogueManager {
                 items.set(i, ItemStack.EMPTY);
                 fr.wakfu.rpg.core.Money.add(player.getUUID(), gain);
                 fr.wakfu.rpg.core.Money.sync(player);
-                openMerchant(npc, player, "§eVendu : " + soldName + " §epour " + gain + " $.");
+                openMerchant(npc, player, "§eVendu : " + soldName + " §epour " + gain + " pièces.");
                 return;
             }
         }
@@ -365,12 +464,12 @@ public class DialogueManager {
         if (result != null) txt.append(result).append("\n");
         txt.append("§6Entre, entre !§r Le feu est chaud et l'enclume chante.\n")
                 .append("Avec ton argent, je forge des pieces benies du Wakfu — aux stats fixes, comme annonce dans ton bestiaire.\n")
-                .append("§8Ta bourse : §e$ ").append(countIngots(player));
+                .append("§8Ta bourse : §e").append(countIngots(player)).append(" pièces");
         send(player, npc, new DialogueNode(name, txt.toString(), List.of(
-                "§6Heaume§8 (30 $)",
-                "§6Cuirasse§8 (50 $)",
-                "§6Jambières§8 (40 $)",
-                "§6Bottes§8 (40 $)",
+                "§6Heaume§8 (30 pièces)",
+                "§6Cuirasse§8 (50 pièces)",
+                "§6Jambières§8 (40 pièces)",
+                "§6Bottes§8 (40 pièces)",
                 "§5★ Fusion — Atelier sombre",
                 "§7Partir")));
     }
@@ -382,7 +481,7 @@ public class DialogueManager {
         String[] slots = {"head", "chest", "legs", "feet"};
         int[] costs = {30, 50, 40, 40};   // v0.25 : en $
         if (!consumeIngots(player, costs[choice])) {
-            openBlacksmith(npc, player, "§cIl te faut " + costs[choice] + " $ pour ça. Les monstres donnent de l'argent !");
+            openBlacksmith(npc, player, "§cIl te faut " + costs[choice] + " pièces pour ça. Les monstres donnent des pièces !");
             return;
         }
         ItemStack piece = fr.wakfu.rpg.item.WakfuArmorItem.makePiece(slots[choice], rollRarity(), 1, net.minecraft.util.RandomSource.create());

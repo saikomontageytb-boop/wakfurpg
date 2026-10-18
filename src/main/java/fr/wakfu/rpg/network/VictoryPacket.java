@@ -2,6 +2,7 @@ package fr.wakfu.rpg.network;
 
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,14 +18,14 @@ public class VictoryPacket {
     public int totalXp;
     public long totalMoney;
     public List<String> mobNames; // noms des monstres vaincus
-    public List<String> lootItems; // noms des objets obtenus
+    public List<ItemStack> lootItems; // objets reels obtenus
     public int round;
     public long duration;         // en ticks
 
     public VictoryPacket() {}
 
     public VictoryPacket(String title, int totalXp, long totalMoney,
-                         List<String> mobNames, List<String> lootItems,
+                         List<String> mobNames, List<ItemStack> lootItems,
                          int round, long duration) {
         this.title = title;
         this.totalXp = totalXp;
@@ -42,7 +43,7 @@ public class VictoryPacket {
         buf.writeVarInt(pkt.mobNames.size());
         for (String s : pkt.mobNames) buf.writeUtf(s, 64);
         buf.writeVarInt(pkt.lootItems.size());
-        for (String s : pkt.lootItems) buf.writeUtf(s, 128);
+        for (ItemStack stack : pkt.lootItems) buf.writeItem(stack);
         buf.writeVarInt(pkt.round);
         buf.writeVarLong(pkt.duration);
     }
@@ -57,7 +58,7 @@ public class VictoryPacket {
         for (int i = 0; i < mobCount; i++) pkt.mobNames.add(buf.readUtf(64));
         int lootCount = buf.readVarInt();
         pkt.lootItems = new ArrayList<>();
-        for (int i = 0; i < lootCount; i++) pkt.lootItems.add(buf.readUtf(128));
+        for (int i = 0; i < lootCount; i++) pkt.lootItems.add(buf.readItem());
         pkt.round = buf.readVarInt();
         pkt.duration = buf.readVarLong();
         return pkt;

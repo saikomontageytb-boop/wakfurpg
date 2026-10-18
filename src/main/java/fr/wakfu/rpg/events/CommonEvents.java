@@ -10,10 +10,12 @@ import fr.wakfu.rpg.core.PlayerRpgData;
 import fr.wakfu.rpg.core.RpgCapProvider;
 import fr.wakfu.rpg.core.RpgClass;
 import fr.wakfu.rpg.network.Network;
+import fr.wakfu.rpg.network.DamagePopupPacket;
 import fr.wakfu.rpg.network.SyncRpgDataPacket;
 import fr.wakfu.rpg.registry.ModItems;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -22,6 +24,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.entity.living.LivingDamageEvent;
+import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
@@ -44,6 +48,46 @@ public class CommonEvents {
         // resync si c'est un vrai joueur serveur
         if (event.getEntity() instanceof ServerPlayer sp) {
             sync(sp);
+        }
+    }
+
+    @SubscribeEvent
+    public void onLivingDamage(LivingDamageEvent event) {
+        if (!(event.getEntity().level() instanceof ServerLevel level) || event.getAmount() <= 0) return;
+        int amount = Math.max(1, Math.round(event.getAmount()));
+        sendNearbyPopup(level, event.getEntity(), amount, false);
+    }
+
+    @SubscribeEvent
+    public void onLivingHeal(LivingHealEvent event) {
+        if (!(event.getEntity().level() instanceof ServerLevel level) || event.getAmount() <= 0) return;
+        float missingHealth = event.getEntity().getMaxHealth() - event.getEntity().getHealth();
+        int amount = Math.min(Math.round(event.getAmount()), Math.max(0, Math.round(missingHealth)));
+        sendNearbyPopup(level, event.getEntity(), amount, true);
+    }
+
+    private static void sendNearbyPopup(ServerLevel level, Entity entity, int amount, boolean healing) {
+        if (amount <= 0) return;
+        DamagePopupPacket packet = new DamagePopupPacket(entity.getId(), amount, healing);
+        for (ServerPlayer viewer : level.players()) {
+            if (viewer.distanceToSqr(entity) <= 64 * 64) Network.sendToPlayer(viewer, packet);
+        }
+    }
+
+    @SubscribeEvent
+    public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        Player player = event.getEntity();
+        var inventory = player.getInventory();
+        for (int i = 0; i < inventory.items.size(); i++) {
+            inventory.items.set(i, fr.wakfu.rpg.item.WakfuArmorItem.rebindToSlot(inventory.items.get(i)));
+        }
+        for (int i = 0; i < inventory.armor.size(); i++) {
+            inventory.armor.set(i, fr.wakfu.rpg.item.WakfuArmorItem.rebindToSlot(inventory.armor.get(i)));
+        }
+        if (player instanceof ServerPlayer sp) {
+            sp.getCapability(ModCapabilities.RPG).ifPresent(data -> {
+                if (!data.hasClass()) Network.sendToPlayer(sp, new fr.wakfu.rpg.network.OpenClassSelectPacket());
+            });
         }
     }
 
@@ -72,6 +116,7 @@ public class CommonEvents {
             fr.wakfu.rpg.core.Friends.load(server);
             fr.wakfu.rpg.core.Market.load(server);
             fr.wakfu.rpg.core.DialogueManager.ensureMarketAtSpawn(level, true);
+            fr.wakfu.rpg.core.DialogueManager.ensureSailorAtSpawn(level, true);
             var zd = fr.wakfu.rpg.core.ZoneData.get(level);
             if (zd.byName("spawn") == null) {
                 var z0 = new fr.wakfu.rpg.core.ZoneData.Zone();
@@ -86,6 +131,14 @@ public class CommonEvents {
                 log.info("Zone protegee 'spawn' creee (rayon 24).");
             }
         }
+        ServerLevel archipelago = server.getLevel(fr.wakfu.rpg.core.IslandMap.DIMENSION);
+        if (archipelago != null) {
+            fr.wakfu.rpg.core.IslandMap.prepare(archipelago);
+            fr.wakfu.rpg.core.DialogueManager.ensureSailorAtSpawn(archipelago, true);
+            archipelago.getGameRules().getRule(net.minecraft.world.level.GameRules.RULE_DOMOBSPAWNING)
+                    .set(false, server);
+        }
+        fr.wakfu.rpg.core.DungeonManager.ensureDefaults(server);
         log.info("Arenes v0.8 : cocons overworld au-dessus du lieu de combat (anciennes plates-formes nettoyees).");
     }
 
@@ -93,12 +146,21 @@ public class CommonEvents {
     // v0.25 : suivi d'immobilité pour la régénération rapide (1 PV/s, 2 PV/s à l'arrêt)
     private static final java.util.Map<java.util.UUID, double[]> LAST_POS = new java.util.HashMap<>();
     private static final java.util.Map<java.util.UUID, Integer> LAST_MOVE = new java.util.HashMap<>();
+    private static final java.util.Map<java.util.UUID, String> LAST_ZONE = new java.util.HashMap<>();
 
     @SubscribeEvent
     public void onPlayerTick(net.minecraftforge.event.TickEvent.PlayerTickEvent event) {
         if (event.phase != net.minecraftforge.event.TickEvent.Phase.START) return;
         if (event.player.level().isClientSide()) return;
         if (!(event.player instanceof ServerPlayer sp)) return;
+        if (sp.tickCount % 10 == 0) notifyZoneChange(sp);
+        if (sp.tickCount % 10 == 0) {
+            for (int i = 0; i < sp.getInventory().armor.size(); i++) {
+                var equipped = sp.getInventory().getArmor(i);
+                var rebound = fr.wakfu.rpg.item.WakfuArmorItem.rebindToSlot(equipped);
+                if (equipped != rebound) sp.getInventory().armor.set(i, rebound);
+            }
+        }
         // resend periodique de l'etat de combat (anti-perte de paquet / resync client)
         if (sp.tickCount % 40 == 0) fr.wakfu.rpg.core.combat.CombatManager.resend(sp);
         // v0.15 : Codex — suivi des zones visitees et du donjon
@@ -246,24 +308,114 @@ public class CommonEvents {
 
     @SubscribeEvent
     public void onBlockBreak(net.minecraftforge.event.level.BlockEvent.BreakEvent event) {
-        if (event.getPlayer() instanceof ServerPlayer sp
-                && fr.wakfu.rpg.core.combat.CombatManager.inCombat(sp.getUUID())) {
-            event.setCanceled(true);
-        }
+        event.setCanceled(true);
     }
 
     /** En combat : aucun degat vanilla (les sorts passent par les PV RPG). */
     @SubscribeEvent
     public void onLivingAttack(net.minecraftforge.event.entity.living.LivingAttackEvent event) {
         if (event.getEntity().level().isClientSide()) return;
-        if (event.getEntity() instanceof ServerPlayer sp
-                && fr.wakfu.rpg.core.combat.CombatManager.inCombat(sp.getUUID())) {
+        if (event.getEntity() instanceof ServerPlayer) {
             event.setCanceled(true);
             return;
         }
-        if (event.getSource().getEntity() instanceof ServerPlayer atk
-                && fr.wakfu.rpg.core.combat.CombatManager.inCombat(atk.getUUID())) {
+        if (event.getSource().getEntity() instanceof Player) {
             event.setCanceled(true);
+        }
+    }
+
+    private static void notifyZoneChange(ServerPlayer player) {
+        ServerLevel level = player.serverLevel();
+        String label = fr.wakfu.rpg.core.ZoneData.get(level)
+                .notificationLabel(level, player.blockPosition());
+        String state = level.dimension().location() + ":" + label;
+        String previous = LAST_ZONE.put(player.getUUID(), state);
+        if (state.equals(previous)) return;
+        player.displayClientMessage(Component.literal("§eZone §8· §f" + label), true);
+        fr.wakfu.rpg.core.ZoneData.Zone zone = fr.wakfu.rpg.core.ZoneData.get(level)
+                .at(player.blockPosition());
+        if (zone != null) fr.wakfu.rpg.core.MobSpawnerData.refreshZone(level, zone);
+    }
+
+    @SubscribeEvent
+    public void onDungeonGateInteract(net.minecraftforge.event.entity.player.PlayerInteractEvent.EntityInteract event) {
+        if (event.getLevel().isClientSide() || event.getHand() != net.minecraft.world.InteractionHand.MAIN_HAND
+                || !(event.getEntity() instanceof ServerPlayer player)
+                || !(event.getTarget() instanceof net.minecraft.world.entity.decoration.ArmorStand stand)) return;
+        if (fr.wakfu.rpg.core.DungeonManager.interactGate(player, stand)) {
+            event.setCanceled(true);
+            event.setCancellationResult(net.minecraft.world.InteractionResult.SUCCESS);
+        }
+    }
+
+    @SubscribeEvent
+    public void onSailorDuplicateLoad(net.minecraftforge.event.entity.EntityJoinLevelEvent event) {
+        if (event.getLevel().isClientSide()
+                || !(event.getLevel() instanceof ServerLevel level)
+                || !(event.getEntity() instanceof fr.wakfu.rpg.entity.SailorNpc incoming)) return;
+        BlockPos spawn = level.dimension().equals(fr.wakfu.rpg.core.IslandMap.DIMENSION)
+                ? fr.wakfu.rpg.core.IslandMap.spawn(level) : level.getSharedSpawnPos();
+        double dx = incoming.getX() - (spawn.getX() + 0.5);
+        double dz = incoming.getZ() - (spawn.getZ() + 0.5);
+        // Remove saved sailors left at the imported-map arrival point after the
+        // owner changed the dimension's world spawn. They are obsolete copies.
+        if (dx * dx + dz * dz > 128 * 128) {
+            event.setCanceled(true);
+            return;
+        }
+        for (fr.wakfu.rpg.entity.SailorNpc other : level.getEntitiesOfClass(
+                fr.wakfu.rpg.entity.SailorNpc.class,
+                new net.minecraft.world.phys.AABB(spawn).inflate(128))) {
+            if (other == incoming) continue;
+            double ox = other.getX() - (spawn.getX() + 0.5);
+            double oz = other.getZ() - (spawn.getZ() + 0.5);
+            double otherDistance = ox * ox + oz * oz;
+            double incomingDistance = dx * dx + dz * dz;
+            if (otherDistance < incomingDistance
+                    || (Math.abs(otherDistance - incomingDistance) < 0.01 && other.getId() < incoming.getId())) {
+                event.setCanceled(true);
+                return;
+            }
+            other.discard();
+        }
+    }
+
+    /** Old wild NPCs stored in distant chunks are retired as those chunks load. */
+    @SubscribeEvent
+    public void onLegacyMonsterChunkLoad(net.minecraftforge.event.entity.EntityJoinLevelEvent event) {
+        if (!(event.getLevel() instanceof ServerLevel)) return;
+        Entity entity = event.getEntity();
+        if (entity.getTags().contains("wakfurpg_spawner_managed")) return;
+        if (entity instanceof fr.wakfu.rpg.entity.MonsterNpc mob) {
+            if (mob.getTags().contains("manual") || mob.isSummon() || mob.getTags().contains("arena_copy")) return;
+            mob.discardWithVisual();
+        } else if (entity.getTags().contains("wakfurpg_alex_model")
+                || entity instanceof net.minecraft.world.entity.monster.Monster) {
+            entity.discard();
+        }
+    }
+
+    @SubscribeEvent
+    public void onExplosion(net.minecraftforge.event.level.ExplosionEvent.Start event) {
+        event.setCanceled(true);
+    }
+
+    @SubscribeEvent
+    public void onAlexModelInteract(net.minecraftforge.event.entity.player.PlayerInteractEvent.EntityInteract event) {
+        if (event.getLevel().isClientSide() || event.getHand() != net.minecraft.world.InteractionHand.MAIN_HAND) return;
+        Entity clicked = event.getTarget();
+        if (!clicked.getTags().contains("wakfurpg_alex_model")) return;
+        String parent = clicked.getTags().stream().filter(t -> t.startsWith("wakfurpg_model_of_")).findFirst().orElse(null);
+        if (parent == null || !(event.getEntity() instanceof ServerPlayer player)) return;
+        if (fr.wakfu.rpg.core.combat.CombatManager.inCombat(player.getUUID())) return;
+        ServerLevel level = player.serverLevel();
+        fr.wakfu.rpg.entity.MonsterNpc monster = level.getEntitiesOfClass(fr.wakfu.rpg.entity.MonsterNpc.class,
+                clicked.getBoundingBox().inflate(5.0D), m -> parent.equals("wakfurpg_model_of_" + m.getUUID()))
+                .stream().findFirst().orElse(null);
+        if (monster != null) {
+            event.setCanceled(true);
+            event.setCancellationResult(net.minecraft.world.InteractionResult.SUCCESS);
+            fr.wakfu.rpg.core.combat.CombatManager.startCombat(player, monster);
         }
     }
 
@@ -292,34 +444,49 @@ public class CommonEvents {
             // v0.25 : nettoie le suivi d'immobilité
             LAST_POS.remove(sp.getUUID());
             LAST_MOVE.remove(sp.getUUID());
+            LAST_ZONE.remove(sp.getUUID());
         }
     }
 
     @SubscribeEvent
     public void onCommands(RegisterCommandsEvent event) {
         fr.wakfu.rpg.core.RpgCommands.register(event.getDispatcher());
-        event.getDispatcher().register(Commands.literal("wakfu")
-                .then(Commands.literal("class")
-                        .then(Commands.argument("classe", StringArgumentType.word())
-                                .executes(ctx -> {
-                                    ServerPlayer sp = ctx.getSource().getPlayer();
-                                    if (sp == null) return 0;
-                                    RpgClass c = RpgClass.byId(StringArgumentType.getString(ctx, "classe").toLowerCase());
-                                    if (c == null) {
-                                        ctx.getSource().sendFailure(Component.translatable("wakfurpg.unknown_class"));
-                                        return 0;
+        var classCommand = Commands.literal("class")
+                .executes(ctx -> openClassSelect(ctx.getSource().getPlayer()))
+                .then(Commands.argument("classe", StringArgumentType.word())
+                        .executes(ctx -> {
+                            ServerPlayer sp = ctx.getSource().getPlayer();
+                            if (sp == null) return 0;
+                            RpgClass c = RpgClass.byId(StringArgumentType.getString(ctx, "classe").toLowerCase());
+                            if (c == null) {
+                                ctx.getSource().sendFailure(Component.translatable("wakfurpg.unknown_class"));
+                                return 0;
+                            }
+                            sp.getCapability(ModCapabilities.RPG).ifPresent(data -> {
+                                if (data.hasClass()) {
+                                    if (!fr.wakfu.rpg.network.ChooseClassPacket.consumeClassChangePermission(sp.getUUID())) {
+                                        sp.sendSystemMessage(Component.translatable("wakfurpg.already_class"));
+                                        return;
                                     }
-                                    sp.getCapability(ModCapabilities.RPG).ifPresent(data -> {
-                                        if (data.hasClass()) {
-                                            sp.sendSystemMessage(Component.translatable("wakfurpg.already_class"));
-                                            return;
-                                        }
-                                        data.chooseClass(c);
-                                        sp.sendSystemMessage(Component.translatable("wakfurpg.class_chosen", c.getName()));
-                                        sync(sp);
-                                    });
-                                    return Command.SINGLE_SUCCESS;
-                                })))
+                                    if (data.getRpgClass() == c) {
+                                        sp.sendSystemMessage(Component.literal("Tu es déjà " + c.getName().getString() + "."));
+                                        return;
+                                    }
+                                    data.changeClass(c);
+                                    sp.sendSystemMessage(Component.literal("Classe changée pour "
+                                            + c.getName().getString() + " ; niveau conservé, sorts réinitialisés."));
+                                } else {
+                                    data.chooseClass(c);
+                                    sp.sendSystemMessage(Component.translatable("wakfurpg.class_chosen", c.getName()));
+                                }
+                                sync(sp);
+                            });
+                            return Command.SINGLE_SUCCESS;
+                        }));
+        event.getDispatcher().register(Commands.literal("wakfu")
+                .then(classCommand)
+                .then(Commands.literal("classe")
+                        .executes(ctx -> openClassSelect(ctx.getSource().getPlayer())))
                 .then(Commands.literal("xp")
                         .then(Commands.argument("quantite", IntegerArgumentType.integer(1, 1000000))
                                 .executes(ctx -> {
@@ -448,6 +615,19 @@ public class CommonEvents {
                         })));
     }
 
+    private static int openClassSelect(ServerPlayer player) {
+        if (player == null) return 0;
+        player.getCapability(ModCapabilities.RPG).ifPresent(data -> {
+            if (data.hasClass()) {
+                fr.wakfu.rpg.network.ChooseClassPacket.allowClassChange(player.getUUID());
+                player.sendSystemMessage(Component.literal(
+                        "Changer de classe conserve le niveau mais réinitialise les sorts."));
+            }
+            Network.sendToPlayer(player, new fr.wakfu.rpg.network.OpenClassSelectPacket());
+        });
+        return Command.SINGLE_SUCCESS;
+    }
+
     // ------------------------------------------------------------ zones protegees (tranche 3)
     @SubscribeEvent
     public void onBreakBlock(net.minecraftforge.event.level.BlockEvent.BreakEvent e) {
@@ -471,224 +651,33 @@ public class CommonEvents {
 
     @SubscribeEvent
     public void onAttackPlayer(net.minecraftforge.event.entity.player.AttackEntityEvent e) {
-        // v0.12 fix : plus AUCUNE attaque vanilla pendant un combat (le tour par
-        // tour passe uniquement par la barre de sorts / les cases)
-        if (e.getEntity() instanceof ServerPlayer atkSelf
-                && fr.wakfu.rpg.core.combat.CombatManager.inCombat(atkSelf.getUUID())) {
-            e.setCanceled(true);
-            return;
-        }
-        if (e.getTarget() instanceof ServerPlayer target && e.getEntity() instanceof ServerPlayer atk
-                && fr.wakfu.rpg.core.ZoneData.isBlocked(target.serverLevel(), target.blockPosition(), atk)) {
-            e.setCanceled(true);
-            atk.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                    "§cPvP interdit dans cette zone protégée."), true);
-        }
+        e.setCanceled(true);
     }
-
-    /** v0.13 : monstres PAR ZONES — grille 3x3 de secteurs de 64 blocs autour du
-     *  spawn. Cible stable par secteur : 2 ou 3 monstres. Jamais 0 (respawn
-     *  garanti), respawn graduel (1 max par secteur et par cycle), parfois en
-     *  groupes de 3 (serres les uns contre les autres, combat en vagues). */
-    private static final int SECTOR = 64;
-    private static final java.util.Random MOB_RNG = new java.util.Random();
 
     @SubscribeEvent
     public void onServerStartedMobs(net.minecraftforge.event.server.ServerStartedEvent event) {
-        var level = event.getServer().overworld();
-        if (level == null) return;
-        var spawn = level.getSharedSpawnPos();
-        for (int cx = (spawn.getX() - 112) >> 4; cx <= (spawn.getX() + 112) >> 4; cx++) {
-            for (int cz = (spawn.getZ() - 112) >> 4; cz <= (spawn.getZ() + 112) >> 4; cz++) {
-                level.getChunk(cx, cz);
-            }
-        }
-        // anciens monstres : rafraichit le nom avec niveau
-        for (var m : level.getEntitiesOfClass(fr.wakfu.rpg.entity.MonsterNpc.class,
-                new net.minecraft.world.phys.AABB(spawn).inflate(128))) {
-            m.refreshName();
-        }
-        // v0.21 : plus de spawn naturel vanilla (le systeme gere tout) +
-        //         nettoyage des mobs sur les toits et des mobs vanilla residuels
-        level.getGameRules().getRule(net.minecraft.world.level.GameRules.RULE_DOMOBSPAWNING)
-                .set(false, level.getServer());
-        cleanOffStreet(level, spawn);
-        for (int sx = -1; sx <= 1; sx++) {
-            for (int sz = -1; sz <= 1; sz++) {
-                topUpSector(level, spawn, sx, sz, true);
-            }
-        }
-        // v0.14 : donjon a l'est du village
-        fr.wakfu.rpg.core.Dungeon.ensure(level, true);
-    }
-
-    private static int sectorTarget(int sx, int sz) {
-        int h = Math.abs(sx * 31 + sz * 17);
-        return 3 + h % 2;   // v0.21 : 3 ou 4 selon la zone (stable)
-    }
-
-    private static int countSector(ServerLevel level, int ox, int oz, int sx, int sz) {
-        int x0 = ox + sx * SECTOR, z0 = oz + sz * SECTOR;
-        var box = new net.minecraft.world.phys.AABB(x0, level.getMinBuildHeight(), z0,
-                x0 + SECTOR, level.getMaxBuildHeight(), z0 + SECTOR);
-        int n = 0;
-        for (var m : level.getEntitiesOfClass(fr.wakfu.rpg.entity.MonsterNpc.class, box)) {
-            if (!m.getTags().contains("arena_copy") && !m.getTags().contains("summon")) n++;
-        }
-        return n;
-    }
-
-    private static void topUpSector(ServerLevel level, net.minecraft.core.BlockPos spawn,
-                                    int sx, int sz, boolean initial) {
-        int ox = spawn.getX() & ~63, oz = spawn.getZ() & ~63;
-        int ground = streetLevel(level, spawn);   // v0.24 : plafond absolu anti-toits
-        int count = countSector(level, ox, oz, sx, sz);
-        int target = sectorTarget(sx, sz);
-        if (count == 0) {
-            // jamais 0 : un spawn immediat, 35% de chances que ce soit un groupe
-            if (MOB_RNG.nextInt(100) < 35) spawnGroup(level, ox + sx * SECTOR, oz + sz * SECTOR, ground);
-            else spawnOne(level, ox + sx * SECTOR, oz + sz * SECTOR, ground);
-            return;
-        }
-        if (count < target) {
-            if (initial) {
-                while (count < target) {
-                    spawnOne(level, ox + sx * SECTOR, oz + sz * SECTOR, ground);
-                    count++;
-                }
-            } else if (MOB_RNG.nextInt(100) < 65) {
-                spawnOne(level, ox + sx * SECTOR, oz + sz * SECTOR, ground);  // graduel : 1 max/cycle
-            }
+        for (ServerLevel level : event.getServer().getAllLevels()) {
+            level.getGameRules().getRule(net.minecraft.world.level.GameRules.RULE_DOMOBSPAWNING)
+                    .set(false, event.getServer());
+            if (!level.dimension().equals(net.minecraft.world.level.Level.OVERWORLD)
+                    && !level.dimension().equals(fr.wakfu.rpg.core.IslandMap.DIMENSION)) continue;
+            int cleared = fr.wakfu.rpg.core.MobSpawnerData.purgeLegacyMobs(level);
+            fr.wakfu.rpg.core.MobSpawnerData.get(level).ensureDefaults(level);
+            fr.wakfu.rpg.core.ZoneData.get(level).ensureZoneConfigs(level);
+            org.apache.logging.log4j.LogManager.getLogger("wakfurpg").info(
+                    "Spawners invisibles prêts dans {} : {} point(s), {} ancien(s) monstre(s) supprimé(s).",
+                    level.dimension().location(), fr.wakfu.rpg.core.MobSpawnerData.get(level).all().size(), cleared);
         }
     }
 
-    private static boolean validSpawn(ServerLevel level, int x, int y, int z, int ground) {
-        var pos = new net.minecraft.core.BlockPos(x, y, z);
-        if (!level.isLoaded(pos)) return false;
-        if (!level.getBlockState(pos).getFluidState().isEmpty()) return false; // pas sous l'eau
-        if (!level.canSeeSky(pos)) return false;                               // rue a ciel ouvert
-        if (y > ground + 6 || y < ground - 10) return false;   // v0.24 : plafond de la rue
-        // ni toit ni trou : le sol doit rester proche du niveau le plus bas du
-        // voisinage (la rue). Un toit depasse largement ses voisins.
-        int m = y;
-        for (int dx = -6; dx <= 6; dx += 6) {
-            for (int dz = -6; dz <= 6; dz += 6) {
-                if (dx == 0 && dz == 0) continue;
-                m = Math.min(m, level.getHeight(
-                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, x + dx, z + dz));
-            }
-        }
-        return y <= m + 3;
-    }
-
-    /** v0.21 : retire les monstres hors rue (toits, balcons) et tout monstre
-     *  vanilla residuel. Copies d'arene et invocations non touchees. */
-    /** v0.24 : niveau de la rue = PLUS BAS des hauteurs autour d'un point
-     *  (insensible aux structures/toits au point de spawn). */
-    private static int streetLevel(ServerLevel level, net.minecraft.core.BlockPos c) {
-        int g = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
-                .MOTION_BLOCKING, c.getX(), c.getZ());
-        for (int dx = -10; dx <= 10; dx += 5) {
-            for (int dz = -10; dz <= 10; dz += 5) {
-                g = Math.min(g, level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types
-                        .MOTION_BLOCKING, c.getX() + dx, c.getZ() + dz));
-            }
-        }
-        return g;
-    }
-
-    private static void cleanOffStreet(ServerLevel level, net.minecraft.core.BlockPos spawn) {
-        int ground = streetLevel(level, spawn);
-        var box = new net.minecraft.world.phys.AABB(spawn).inflate(224);
-        for (var m : level.getEntitiesOfClass(fr.wakfu.rpg.entity.MonsterNpc.class, box)) {
-            if (m.getTags().contains("arena_copy") || m.getTags().contains("summon")) continue;
-            if (m.getY() > ground + 6.5) m.discard();
-        }
-        for (var mo : level.getEntitiesOfClass(net.minecraft.world.entity.monster.Monster.class, box)) {
-            mo.discard();
-        }
-    }
-
-    private static void spawnOne(ServerLevel level, int x0, int z0, int ground) {
-        for (int tries = 0; tries < 16; tries++) {
-            int x = x0 + 4 + MOB_RNG.nextInt(SECTOR - 8);
-            int z = z0 + 4 + MOB_RNG.nextInt(SECTOR - 8);
-            int y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, x, z);
-            if (!validSpawn(level, x, y, z, ground)) continue;
-            spawnMobAt(level, x, y, z);
-            return;
-        }
-    }
-
-    /** Groupe de 3 monstres serres (combat en vagues ensuite). */
-    private static void spawnGroup(ServerLevel level, int x0, int z0, int ground) {
-        for (int tries = 0; tries < 12; tries++) {
-            int gx = x0 + 8 + MOB_RNG.nextInt(SECTOR - 16);
-            int gz = z0 + 8 + MOB_RNG.nextInt(SECTOR - 16);
-            int gy = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, gx, gz);
-            if (!validSpawn(level, gx, gy, gz, ground)) continue;
-            spawnMobAt(level, gx, gy, gz);
-            int placed = 1;
-            for (int i = 0; i < 6 && placed < 3; i++) {
-                int mx = gx + MOB_RNG.nextInt(7) - 3;
-                int mz = gz + MOB_RNG.nextInt(7) - 3;
-                int my = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, mx, mz);
-                if (!validSpawn(level, mx, my, mz, ground)) continue;
-                spawnMobAt(level, mx, my, mz);
-                placed++;
-            }
-            return;
-        }
-        spawnOne(level, x0, z0, ground);
-    }
-
-    private static void spawnMobAt(ServerLevel level, int x, int y, int z) {
-        // v0.23 : zones par distance — plaine (zombies Nv.1-4), carrieres
-        // (squelettes Nv.4-9), grand chemin (bandits Nv.7-13). Le niveau
-        // affiche = niveau JOUEUR conseille. Variante visuelle ponderee.
-        var sp0 = level.getSharedSpawnPos();
-        double dx = x - sp0.getX(), dz = z - sp0.getZ();
-        double dist = Math.sqrt(dx * dx + dz * dz);
-        String baseId = dist < 96 ? "momic" : (dist < 200 ? "skeleton" : "bandit");
-        if (MOB_RNG.nextInt(100) < 12) {
-            baseId = new String[]{"momic", "skeleton", "bandit"}[MOB_RNG.nextInt(3)];
-        }
-        var type = fr.wakfu.rpg.core.MonsterType.byId(baseId);
-        var v = fr.wakfu.rpg.core.MobVariants.roll(baseId, MOB_RNG);
-        int lvl = v.minLvl + MOB_RNG.nextInt(v.maxLvl - v.minLvl + 1);
-        var m = new fr.wakfu.rpg.entity.MonsterNpc(fr.wakfu.rpg.registry.ModEntities.MONSTER.get(), level);
-        m.init(type, lvl, v.id);
-        m.moveTo(x + 0.5, y, z + 0.5, MOB_RNG.nextFloat() * 360, 0);
-        m.setHome(x, y, z);
-        level.addFreshEntity(m);
-    }
-
-    /** v0.21 : respawn periodique graduel — toutes les 60 s, 1 max par zone
-     *  sous-peuplee, + nettoyage des toits a chaque cycle. */
     @SubscribeEvent
     public void onServerTickMobRespawn(net.minecraftforge.event.TickEvent.ServerTickEvent event) {
         if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
-        var server = event.getServer();
-        if (server.getTickCount() % 1200 != 0) return;
-        var level = server.overworld();
-        if (level == null) return;
-        var spawn = level.getSharedSpawnPos();
-        cleanOffStreet(level, spawn);   // v0.21 : jamais de mobs sur les toits
-        // v0.14 : entretien du donjon (boss/gardes) — independant des joueurs proches
-        fr.wakfu.rpg.core.Dungeon.ensure(level, false);
-        boolean near = false;
-        for (var pl : server.getPlayerList().getPlayers()) {
-            if (pl.level() == level
-                    && pl.distanceToSqr(spawn.getX(), spawn.getY(), spawn.getZ()) < 160 * 160) {
-                near = true;
-                break;
-            }
-        }
-        if (!near) return;
-        for (int sx = -1; sx <= 1; sx++) {
-            for (int sz = -1; sz <= 1; sz++) {
-                topUpSector(level, spawn, sx, sz, false);
-            }
+        for (ServerLevel level : event.getServer().getAllLevels()) {
+            fr.wakfu.rpg.core.combat.CombatManager.tickMovement(level);
+            if (level.dimension().equals(net.minecraft.world.level.Level.OVERWORLD)
+                    || level.dimension().equals(fr.wakfu.rpg.core.IslandMap.DIMENSION))
+                fr.wakfu.rpg.core.MobSpawnerData.tick(level);
         }
     }
 }

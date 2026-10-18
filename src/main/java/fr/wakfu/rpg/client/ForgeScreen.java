@@ -96,6 +96,24 @@ public class ForgeScreen extends Screen {
             g.disableScissor();
         }
 
+        int ingotCount = 0;
+        for (var stack : player.getInventory().items)
+            if (stack.is(fr.wakfu.rpg.registry.ModItems.WAKFU_INGOT.get())) ingotCount += stack.getCount();
+        String[] craftLabels = {"Tête", "Torse", "Jambières", "Bottes"};
+        int craftW = (PW - 32) / 4;
+        int craftY = py + PH - 37;
+        g.drawString(font, "Forger une pièce · 6 lingots", px + 14, craftY - 11, 0xFFE8D8B8);
+        for (int i = 0; i < craftLabels.length; i++) {
+            int bx = px + 12 + i * (craftW + 2);
+            boolean canCraft = ingotCount >= 6;
+            g.fill(bx, craftY, bx + craftW, craftY + 16, canCraft ? 0xFF354338 : 0xFF292B2A);
+            g.fill(bx, craftY, bx + craftW, craftY + 1, canCraft ? 0xFF80B878 : 0xFF555555);
+            String label = craftLabels[i];
+            g.drawString(font, label, bx + (craftW - font.width(label)) / 2, craftY + 4,
+                    canCraft ? 0xFFB9E3A2 : 0xFF898989);
+            rects.add(0, new int[]{bx, craftY, craftW, 16, 100 + i});
+        }
+
         // arme equipee (rappel)
         player.getCapability(ModCapabilities.RPG).ifPresent(data -> {
             String w = data.getEquippedWeapon().isEmpty()

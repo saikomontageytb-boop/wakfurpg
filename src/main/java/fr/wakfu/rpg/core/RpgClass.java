@@ -5,7 +5,16 @@ import net.minecraft.network.chat.Component;
 public enum RpgClass {
     IOP("iop", 50, 10),
     CRA("cra", 40, 8),
-    SADIDA("sadida", 45, 9);
+    SADIDA("sadida", 45, 9),
+    SYKAR("sykar", 52, 10),
+    TOR("tor", 64, 12),
+    SPLIAN("splian", 42, 8),
+    GEMA("gema", 48, 10),
+    ENESTRAS("enestras", 44, 9);
+
+    public RpgClass spellArchetype() {
+        return this;
+    }
 
     private final String id;
     private final int baseHp;

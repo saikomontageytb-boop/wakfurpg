@@ -19,7 +19,9 @@ public class ModCreative {
                     .displayItems((params, output) -> {
                         // Core items
                         output.accept(ModItems.WAKFU_GRIMOIRE.get());
-                        output.accept(ModItems.WAKFU_ARMOR.get());
+                        for (String slot : new String[]{"head", "chest", "legs", "feet"})
+                            output.accept(fr.wakfu.rpg.item.WakfuArmorItem.makePiece(slot, "commune", 1,
+                                    net.minecraft.util.RandomSource.create()));
                         output.accept(ModItems.WAKFU_WEAPON.get());
                         output.accept(ModItems.WAKFU_GEAR.get());
                         output.accept(ModItems.WAKFU_TROPHY.get());
@@ -39,6 +41,7 @@ public class ModCreative {
                         output.accept(ModItems.EGG_BLACKSMITH.get());
                         output.accept(ModItems.EGG_MERCHANT.get());
                         output.accept(ModItems.EGG_MARKET.get());
+                        output.accept(ModItems.EGG_SAILOR.get());
                         output.accept(ModItems.EGG_MONSTER.get());
                         // v0.29 : Mount eggs
                         output.accept(ModItems.MOUNT_WOLF_ITEM.get());

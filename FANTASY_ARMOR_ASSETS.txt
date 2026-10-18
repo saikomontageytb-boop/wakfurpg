@@ -1,0 +1,15 @@
+Fantasy Armor model and texture attribution
+
+The following assets in WakfuRPG are adapted from Fantasy Armor for Minecraft 1.20.1:
+- assets/wakfurpg/geo/armor/*_armor.geo.json
+- assets/wakfurpg/textures/armor/fantasy_*.png
+- assets/wakfurpg/textures/item/fantasy_*_(helmet|chestplate|leggings|boots).png
+
+Original authors: Kenddie and mon1tor.
+Source mod: fantasy_armor-forge-0.1-1.20.1.jar, supplied by the project owner.
+License: Creative Commons Attribution-NonCommercial-ShareAlike 2.0 (CC BY-NC-SA 2.0).
+Source: https://creativecommons.org/licenses/by-nc-sa/2.0/
+
+The original model and texture assets are retained in their original form. They are
+redistributed under the license above. WakfuRPG code is separately licensed as
+indicated in gradle.properties and its Forge mod metadata.

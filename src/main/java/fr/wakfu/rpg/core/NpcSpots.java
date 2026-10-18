@@ -22,7 +22,7 @@ public class NpcSpots {
             new Spot("marchand", "Marchand", -13, -9),
             new Spot("banque", "Banque (coffre d'or)", -7, -2),
             new Spot("marche", "Hôtel des Ventes", 6, 13),
-            new Spot("donjon", "Donjon — Chef des Bandits", 150, 60));
+            new Spot("marin", "Marin", 20, -12));
 
     public static Spot byId(String id) {
         for (Spot s : SPOTS) if (s.id().equals(id)) return s;

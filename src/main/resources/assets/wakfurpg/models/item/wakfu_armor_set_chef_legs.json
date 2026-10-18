@@ -1,0 +1,6 @@
+{
+    "textures":  {
+                     "layer0":  "wakfurpg:item/fantasy_dragonslayer_leggings"
+                 },
+    "parent":  "item/generated"
+}
